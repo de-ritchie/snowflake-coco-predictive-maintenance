@@ -1,3 +1,11 @@
+# CoCo workspace-local state (machine-specific) — but keep mcp.json: it has no
+# secrets (OAuth tokens live in the OS keychain, not this file) and documents
+# the Jira MCP integration for reproducibility. .cortex/ (project skills) is
+# intentionally NOT ignored below — skills are meant to be committed so they
+# travel with the repo.
+.snowflake/cortex/*
+!.snowflake/cortex/mcp.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
