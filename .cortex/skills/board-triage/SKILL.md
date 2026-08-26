@@ -23,7 +23,7 @@ Query current state with the Atlassian MCP tools (`mcp_atlassian_searchJiraIssue
 project = SH AND status != Done ORDER BY status
 ```
 
-Group results by status column. This tells you what's already in flight (To Do / In Progress / Review / Docs / Done-pending-merge, per the board's SDLC-gate columns).
+Group results by status column. Project SH's actual workflow (confirmed 2026-08-26, re-verify with `mcp_atlassian_getTransitionsForJiraIssue` if it looks stale) is **To Do → In Progress → Review → Done** — a `Review` status was added specifically to gate on PR review/merge (see Step 4a/4b below). There is no separate Docs column; documentation-only stories (e.g. Documenter-skill work) still go through the same 4 statuses.
 
 ### Step 2: Determine current-priority Epic
 
@@ -55,8 +55,8 @@ Use `ask_user_question` if the choice isn't obvious from the conversation; a pla
 **What this means in practice**: after Step 3's confirmation, tell the user exactly which issues to manually drag from Backlog onto the Board in the Jira UI (or use the board's "Move to Board" bulk action). Status transitions (below) work fine via API regardless of whether an issue has been placed on the board yet — this skill's transition calls are not blocked by board membership, so you can transition an issue to In Progress even before/without confirming it's visually on the board. If the user says they've already moved something to the board manually (as with SH-10/SH-14), just proceed with the transition.
 
 For each confirmed story:
-1. Transition it to **To Do** (`mcp_atlassian_transitionJiraIssue`) — use `mcp_atlassian_getTransitionsForJiraIssue` first if the exact transition ID/name isn't already known for this project. (Transition ID `21` = "In Progress" is already confirmed for project SH as of 2026-08-26 — reuse it directly instead of re-querying every time, but re-verify if issues arise.)
-2. When the user says to actually start one (not just queue it), transition it to **In Progress**.
+1. Transition it to **To Do** if not already there (`mcp_atlassian_transitionJiraIssue`) — always call `mcp_atlassian_getTransitionsForJiraIssue` first to get the current transition ID; do not hardcode IDs, they shift as the workflow evolves (a `Review` status was added mid-project — see Step 4a).
+2. When the user says to actually start one (not just queue it): **create the git branch first (Step 4a), then** transition the issue to **In Progress**.
 3. **Hand off based on the story's dev-tool label**:
    - `sdlc-skill` label **and** the 4 SDLC skills already exist in this repo (check `.cortex/skills/` or wherever they were authored per EPIC-SDLC) → hand off to the **Design** skill first, following the Design → Dev → Review → Docs chain from there. Read the story's Jira description for its FR-ID/LLD-section reference before handing off — that's the Design skill's required input.
    - `sdlc-skill` label but the 4 skills **don't exist yet** → this story likely *is* one of the EPIC-SDLC stories (SH-12, SH-15–SH-18) or comes before them; just build it directly, no hand-off loop yet.
@@ -67,9 +67,32 @@ For each confirmed story:
    - `ops` → `snowflake-tasks`/`warehouse`/`sql-author` as appropriate (environment/lifecycle scripts).
    - `machine-learning` → `machine-learning` bundled skill.
 
-### Step 5: Close the loop
+### Step 4a: Create the git branch (before any implementation work starts)
 
-When a story is done (merged, or otherwise complete per its Definition of Done in `docs/05-Epics.md`), transition it to **Done** and return to Step 1. If that was the last open Story in the current-priority Epic, re-run Step 2 to pick the next Epic — tell the user which Epic that is before continuing, don't silently jump tiers.
+**Every story or batch of stories worked In Progress gets its own branch off `main` — no implementation work happens directly on `main`.** This applies to ALL stories regardless of dev-tool label (not just `sdlc-skill`-labeled ones — the Developer skill's own branch/PR habit from LLD Module 11 §2 is now the project-wide norm, not a dbt-only pattern).
+
+**Branch naming**: `<type>/SH-<epicNum>-<storyNum1>[-<storyNum2>...]-<slug>`
+- `<type>` is `feature/` for new capability (the default), or `bugfix/` for fixing something broken/discovered.
+- `<epicNum>` is the parent Epic's numeric ID (e.g. `2` for SH-2), `<storyNum>` is each story's numeric ID, hyphen-separated for a batch.
+- `<slug>` is a short kebab-case description from the story summary.
+- Example, single story SH-16 under Epic SH-5: `feature/SH-5-16-author-design-skill`
+- Example, batch of SH-10+SH-14 under Epic SH-2: `feature/SH-2-10-14-env-setup`
+
+Create it with `git checkout -b <branch-name> main` (or `git switch -c ... main`) via Bash before writing any code/SQL/config for that story. If the user already created uncommitted work on `main` before this rule existed (as happened with SH-10/SH-14), don't retroactively branch it — that's a one-time exception, not a pattern to repeat.
+
+### Step 4b: Raise the PR, move to Review (not Done)
+
+When the story's work is complete:
+1. Commit the changes on the branch (only files relevant to this story — don't sweep in unrelated uncommitted changes without asking).
+2. Push the branch and open a PR to `main` via `gh pr create`, title referencing the Jira key(s) (e.g. `[SH-16] Author Design skill`), body summarizing what changed and linking back to the story's FR-ID/LLD traceability.
+3. Transition the Jira issue to **Review** (not Done) — get the transition ID via `mcp_atlassian_getTransitionsForJiraIssue` first.
+4. Tell the user the PR is up and ask them to review/merge — do not merge it yourself unless explicitly told to.
+
+### Step 5: Close the loop — only after the PR is merged
+
+Once the user confirms the PR is merged (or you confirm via `gh pr view --json state` if asked to check): transition the issue from **Review** to **Done** and return to Step 1. Do not skip Review and jump straight to Done, even if the PR looks trivial — the human-merge gate is the point (FR-SDLC-02).
+
+If that was the last open Story in the current-priority Epic, re-run Step 2 to pick the next Epic — tell the user which Epic that is before continuing, don't silently jump tiers.
 
 ## Adding new backlog items (Epic / Story / Task / Subtask)
 
@@ -98,6 +121,8 @@ New work surfaces mid-flight — a discovered bug, an unplanned follow-up, a spi
 - Never move a story tier out of order (don't start P1 work while P0 stories sit untouched in Backlog) unless the user explicitly overrides — ask if it looks like that's about to happen.
 - Never invent stories or re-derive priority from scratch — `docs/05-Epics.md` is the source of truth; if a story described there doesn't exist yet in Jira, say so rather than guessing its content.
 - If a story's parent Epic can't be determined (e.g. Jira `parent` lookup fails), stop and ask rather than guessing which Epic it belongs to.
+- **Never implement a story's work directly on `main`.** Create the branch (Step 4a) before writing anything. If you notice mid-task that work already started on `main` without a branch, stop and ask the user how to proceed rather than silently continuing or silently branching after the fact.
+- Never merge a PR yourself unless the user explicitly says to — merging is the human gate (FR-SDLC-02), not something this skill decides on its own.
 
 ## Output
 
