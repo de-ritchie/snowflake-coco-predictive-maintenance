@@ -11,8 +11,8 @@ Traces to: [01-BRD.md](01-BRD.md), [02-FRD.md](02-FRD.md), [03-HLD.md](03-HLD.md
 This is the missing layer between design (BRD/FRD/HLD/LLD) and execution: a Jira-Kanban-ready backlog. It does **not** re-derive any design decision — every Story cites the FR-ID/LLD section it implements. It does three things the LLD didn't:
 
 1. **Sequences work by build risk and demo-criticality**, not by LLD module number. Epics are tiered **P0 / P1 / P2 / P3**, and within P0 the story order is the literal walking-skeleton build order — confirmed with the user: env spin-up → data generation (thin) → dbt setup/models → first model → semantic view → Streamlit + live tick.
-2. **Maps each Story to the human-gated SDLC flow** (Design → Develop → Review → Document, LLD Module 11) so the Kanban board's columns mirror that governance model, not a generic To Do/Doing/Done.
-3. **Treats the lifecycle scripts (setup/post-setup/demo/teardown) as versioned artifacts that grow with each tier**, not a single big-bang "ops" epic built once. Setup and post-setup scripts are first written *thin* in P0 (just enough to stand up the walking skeleton) and explicitly revised in place as each later tier adds a component — this matches how you'd actually build it, and gives natural checkpoints for the Reviewer/Documenter skills to re-certify a script after each change instead of only once at the end.
+2. **Maps each dbt-model Story to the human-gated SDLC flow** (Design → Develop → Review → Document, LLD Module 11) — implemented as **4 real subagents** (`Design-agent`/`Developer-agent`/`Reviewer-agent`/`Documenter-agent`, `.snowflake/cortex/agents/`), not skill hand-offs. A frozen per-story design doc at `docs/designs/SH-<key>-<slug>.md` is the artifact that flows between them. Non-dbt stories (ops/snowpark/streamlit/agent/jira/machine-learning) route to a 5th agent, `Triage-agent`, which does the whole branch→implement→PR→Review cycle itself. Two skills support all 5 agents with purely mechanical, repeatable procedures: `board-triage` (backlog CRUD/prioritization) and `dev-workflow` (git branch/PR/Jira-transition mechanics) — skills decide nothing about design or code, only *how* to do the repetitive parts.
+3. **Treats the lifecycle scripts (setup/post-setup/demo/teardown) as versioned artifacts that grow with each tier**, not a single big-bang "ops" epic built once. Setup and post-setup scripts are first written *thin* in P0 (just enough to stand up the walking skeleton) and explicitly revised in place as each later tier adds a component — this matches how you'd actually build it, and gives natural checkpoints for `Reviewer-agent`/`Documenter-agent` to re-certify a script after each change instead of only once at the end.
 
 **Two Jira projects, do not conflate** (FRD note under Systems Landscape A5/A10):
 - **This backlog → Kanban dev-tracking project (A10)**, work-items below.
@@ -24,7 +24,7 @@ This is the missing layer between design (BRD/FRD/HLD/LLD) and execution: a Jira
 - **P2 — Stretch / bonus.** Explainability tool, MCP swap for Jira, cross-surface demonstration, anything purely for judging-bonus optics.
 - **P3 — Teardown.** Deliberately last, not P1: only needed once you're actually done with an environment (end of a dev session, or post-hackathon), so it shouldn't compete with build time earlier.
 
-**SDLC skills — pulled up, per user direction (not deferred to P2):** the 4 custom CoCo skills (Design/Developer/Reviewer/Documenter, LLD Module 11) are built **early**, right after environment spin-up, and then *used* to build every subsequent dbt-model Story in P0 and P1. Snowpark-only stories (data generator, training procs) and script stories (setup/post-setup/demo/teardown) bypass these 4 skills and use the bundled `snowpark-python`/`sql-author`/`snowflake-tasks` skills directly (LLD Module 11, unchanged).
+**SDLC agents — pulled up, per user direction (not deferred to P2):** the 4 SDLC agents (Design/Developer/Reviewer/Documenter, LLD Module 11) are built **early**, right after environment spin-up, and then *used* (manually dispatched by the user, one at a time — agents can't chain into each other) to build every subsequent dbt-model Story in P0 and P1. Non-dbt stories (data generator, ops/lifecycle scripts, Streamlit, agent config, Jira integration) route to `Triage-agent` instead — a general executor that doesn't require a frozen design doc first. No orchestration skill auto-sequences Design→Dev→Review→Document; the user decides when each stage runs.
 
 ---
 
@@ -41,15 +41,15 @@ This is the missing layer between design (BRD/FRD/HLD/LLD) and execution: a Jira
 | Docs | Documenter agent updating `schema.yml`/changelog | — |
 | Done | Merged, card closed | Human merge |
 
-Stories that are **not** dbt-model work (Snowpark scripts, Streamlit, agent config, Jira setup, environment/lifecycle scripts) skip the Design/Dev/Review/Docs SDLC-skill gate but still move through the same columns manually — only the *tool used* at Dev differs (per LLD Module 11's dbt-only scope).
+Stories that are **not** dbt-model work (Snowpark scripts, Streamlit, agent config, Jira setup, environment/lifecycle scripts) skip the Design/Dev/Review/Docs SDLC-agent gate — `Triage-agent` handles them start-to-finish — but still move through the same 4 statuses (To Do/In Progress/Review/Done) manually.
 
-**Labels**: `P0`/`P1`/`P2`/`P3` (priority tier), `fr-<id>` (traceability, one or more per story), `sdlc-skill` (stories where a Design/Developer/Reviewer/Documenter skill is the Dev tool) vs `snowpark`/`streamlit`/`agent`/`ops`/`jira` (Dev tool is something else), `script-vN` (which revision of a lifecycle script a story touches — see §2).
+**Labels**: `P0`/`P1`/`P2`/`P3` (priority tier), `fr-<id>` (traceability, one or more per story), `sdlc-skill` (stories routed through the Design→Developer→Reviewer→Documenter agent chain — label name predates the agent/skill split and is kept as-is to avoid relabeling ~20 existing Jira issues; it now means "agent chain," not literally "skill") vs `snowpark`/`streamlit`/`agent`/`ops`/`jira`/`machine-learning` (routed to `Triage-agent` instead), `script-vN` (which revision of a lifecycle script a story touches — see §2).
 
 **Epics**:
 
 | Epic | Tier | Summary |
 |---|---|---|
-| EPIC-SDLC | P0 (built first, used throughout) | Author the 4 CoCo SDLC skills |
+| EPIC-SDLC | P0 (built first, used throughout) | Author the 4 SDLC agents (Design/Developer/Reviewer/Documenter) + the `dev-workflow` skill they share |
 | EPIC-SKELETON | P0 | Env spin-up → thin data gen → dbt Raw/Std/Cons → IsolationForest → semantic view → post-setup script v1 (semantic view + 1 agent) → Streamlit (Overview+Chat) → live tick |
 | EPIC-FULLDATA | P1 | Full 3yr+8wk data gen, all failure modes, crew-capacity mechanism, fallback patch if needed; setup script updated to full FR-DG-12 invocation |
 | EPIC-RUL | P1 | RUL AFT model (raw Booster path), priority score, Forecast OEE; pipeline-run script updated for 2-model training order |
@@ -75,25 +75,25 @@ Rather than one "ops" epic built once, each lifecycle script is a living artifac
 
 ---
 
-## 3. EPIC-SDLC — Author the 4 CoCo SDLC skills (P0, built first)
+## 3. EPIC-SDLC — Author the 4 SDLC agents + dev-workflow skill (P0, built first)
 
-Traces to: FR-SDLC-01/02/03, LLD Module 11.
+Traces to: FR-SDLC-01/02/03, LLD Module 11. **Superseded design note (2026-08-26)**: originally scoped as 4 CoCo *skills*; reworked to 4 real subagents (own context, dispatched via the `task` tool, `.snowflake/cortex/agents/`) plus the `dev-workflow` skill they share for git/PR/Jira mechanics — "agents are the powerhouse where skills are applied." Story titles below still say "skill" (matching the already-created Jira issues); read as "agent."
 
 | Story | Task/Sub-tasks | Traces to |
 |---|---|---|
-| **S-SDLC-1**: Author Design skill | T1: Draft `SKILL.md` (input: Jira story; reads LLD module; outputs design note, no invented architecture). T2: Test against a throwaway story. | Module 11 §1 |
-| **S-SDLC-2**: Author Developer skill | T1: Draft `SKILL.md` (writes dbt `.sql`+`.yml`, follows Module 1/3/4 naming/materialization conventions). T2: Test against a throwaway story. | Module 11 §2 |
-| **S-SDLC-3**: Author Reviewer skill | T1: Draft `SKILL.md` (runs `dbt run --select <model>+`/`dbt test`, checks acceptance criteria + named invariants e.g. leakage-safety, incremental-refresh). T2: Test against a throwaway PR. | Module 11 §3 |
-| **S-SDLC-4**: Author Documenter skill | T1: Draft `SKILL.md` (updates `schema.yml` descriptions + changelog on merge). T2: Test against a throwaway merge. | Module 11 §4 |
-| **S-SDLC-5**: Publish all 4 as reusable skills | T1: Confirm frontmatter/format matches CoCo skill packaging. T2: Add short README cross-links between them (Design→Dev→Review→Docs). | FR-SDLC-03 |
+| **S-SDLC-1**: Author Design agent | T1: Write `Design-agent.md` (non-autonomous, brainstorms with the user using HLD/LLD/FRD, freezes `docs/designs/SH-<key>-<slug>.md` only once the user explicitly confirms — no invented architecture). T2: Test against a real story. | Module 11 §1 |
+| **S-SDLC-2**: Author Developer agent | T1: Write `Developer-agent.md` (implements strictly against the frozen design doc; writes dbt `.sql`+`.yml`, follows Module 1/3/4 conventions; no PR, no status change). T2: Test against a real story. | Module 11 §2 |
+| **S-SDLC-3**: Author Reviewer agent | T1: Write `Reviewer-agent.md` (runs `dbt run --select <model>+`/`dbt test`, checks doc adherence + named invariants e.g. leakage-safety FR-PL-03, incremental-refresh FR-FS-09; reports only, no PR exists yet at this stage). T2: Test against a real PR. | Module 11 §3 |
+| **S-SDLC-4**: Author Documenter agent | T1: Write `Documenter-agent.md` (reconciles the design doc with what was built, updates `schema.yml`/`CHANGELOG.md`, attaches the final doc to the Jira story, opens the PR, moves the story to Review — via the `dev-workflow` skill). T2: Test against a real merge. | Module 11 §4 |
+| **S-SDLC-5**: Publish all 4 as reusable agents | T1: Confirm frontmatter/format matches CoCo custom-agent packaging. T2: Add short cross-references between them (Design→Dev→Review→Docs). | FR-SDLC-03 |
 
-**Definition of Done**: all 4 skills exist and have each been exercised at least once against a real (non-throwaway) Story before EPIC-SKELETON's dbt-model stories begin.
+**Definition of Done**: all 4 agents (+ `dev-workflow` skill) exist and have each been exercised at least once against a real (non-throwaway) Story before EPIC-SKELETON's dbt-model stories begin.
 
 ---
 
 ## 4. EPIC-SKELETON — Walking skeleton, P0 (the literal next-steps order)
 
-Build order as agreed: **env spin-up → data gen (thin) → dbt setup/models → first model → semantic view → post-setup script v1 (semantic view + 1 agent) → Streamlit + live tick.** Every dbt-model Story here is built via the Design→Dev→Review→Docs skill chain from EPIC-SDLC.
+Build order as agreed: **env spin-up → data gen (thin) → dbt setup/models → first model → semantic view → post-setup script v1 (semantic view + 1 agent) → Streamlit + live tick.** Every dbt-model Story here is built via the Design→Dev→Review→Docs agent chain from EPIC-SDLC (user-driven sequencing, no auto-orchestration); everything else routes to `Triage-agent`.
 
 ### 4.1 Environment spin-up (setup script v0 — SQL only, no data yet)
 
