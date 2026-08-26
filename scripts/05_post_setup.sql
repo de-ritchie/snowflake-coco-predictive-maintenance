@@ -1,0 +1,17 @@
+-- ============================================================================
+-- 05_post_setup.sql — Semantic view + Agent(s) + Streamlit deploy
+-- Traces to: FR-OPS-03, LLD Module 10 §5, docs/05-Epics.md EPIC-SKELETON §4.5/4.6
+-- Jira: SH-30 (S-SEM-1), SH-28 (S-AGENT-1), SH-31 (S-OPS-POST-1),
+--       SH-33 (S-OPS-POST-1b), SH-21/SH-32 (S-APP-1/2)
+-- Status: NOT YET BUILT.
+--
+-- This is post-setup script v1's scope (semantic view + 1 agent + Streamlit).
+-- Per docs/05-Epics.md §2, this file gets REVISED IN PLACE to v2 in
+-- EPIC-PERSONAS (S-OPS-POST-2, SH-60) once the 3-persona expansion happens —
+-- not replaced with a new file.
+--
+-- Will run:
+--   CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view ...
+--   CREATE OR REPLACE AGENT snowcomotive.cons.maintenance_supervisor_agent ...
+--   snow streamlit deploy --replace
+-- ============================================================================

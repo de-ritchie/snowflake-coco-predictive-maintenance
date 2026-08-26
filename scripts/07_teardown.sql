@@ -1,0 +1,21 @@
+-- ============================================================================
+-- 07_teardown.sql — Full environment teardown (P3, deliberately last)
+-- Traces to: FR-OPS-05, LLD Module 10 §7, docs/05-Epics.md EPIC-TEARDOWN §11
+-- Jira: SH-68 (S-TEARDOWN-1), SH-61 (S-TEARDOWN-2)
+-- Status: NOT YET BUILT — lowest priority, only needed once actually done
+-- with an environment.
+--
+-- Will run:
+--   DROP DATABASE IF EXISTS snowcomotive;   -- cascades schemas/tables/stage/
+--                                            -- dynamic tables/semantic view
+--   DROP AGENT IF EXISTS snowcomotive.cons.maintenance_supervisor_agent;
+--   DROP AGENT IF EXISTS snowcomotive.cons.production_planner_agent;
+--   DROP AGENT IF EXISTS snowcomotive.cons.plant_manager_agent;
+--   -- snow streamlit drop snowcomotive_command_center
+--   DROP ROLE IF EXISTS snowcomotive_role;
+--   DROP WAREHOUSE IF EXISTS snowcomotive_wh;
+--
+-- NOT dropped: the Jira Service Management project (A5) and its Secret /
+-- External Access Integration — external system + credential, manual
+-- cleanup, per FR-OPS-05.
+-- ============================================================================

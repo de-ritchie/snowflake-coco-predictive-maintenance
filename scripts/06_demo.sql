@@ -1,0 +1,17 @@
+-- ============================================================================
+-- 06_demo.sql — Live tick injection (demo-only manual trigger)
+-- Traces to: FR-OPS-04, FR-PL-04b, LLD Module 10 §6, docs/05-Epics.md
+--            EPIC-SKELETON §4.6
+-- Jira: SH-25 (S-DEMO-1) — demo script v1 (single manual tick)
+-- Status: NOT YET BUILT.
+--
+-- v1 (this file's initial scope): one pre-generated held-back tick file,
+-- manual upload + immediate EXECUTE TASK.
+-- v2 (EPIC-FULLDATA, S-DATA-9 / EPIC-OPS-HARDEN, S-OPS-HARDEN-2): full
+-- 30-day drip-feed set + background pre-demo production mode, added here
+-- in place, not as a new file.
+--
+-- Will run:
+--   PUT file://<next_pregenerated_tick>.parquet @snowcomotive.raw.landing_stage/sensor_ticks/;
+--   EXECUTE TASK snowcomotive.raw.sensor_tick_copy_task;
+-- ============================================================================

@@ -1,0 +1,13 @@
+-- ============================================================================
+-- 03_train_models.sql — Model training (IsolationForest first, RUL AFT later)
+-- Traces to: FR-OPS-02a, LLD Module 10 §3, docs/05-Epics.md EPIC-SKELETON §4.4
+-- Jira: SH-22 (S-MODEL-2, IsolationForest) ; RUL training (S-RUL-3, SH-44) is P1
+-- Status: NOT YET BUILT — placeholder until S-MODEL-1/S-MODEL-2 are done.
+--
+-- Must run after 02_pipeline_run_phase1 (needs feast.fct_sensor_features_*
+-- built) and before 04_pipeline_run_phase2 (inference tables reference these
+-- models by name at CREATE time).
+--
+-- Will call: CALL snowcomotive.cons.sp_train_isolation_forest();
+-- (RUL: CALL snowcomotive.cons.sp_train_rul_aft(); added in EPIC-RUL)
+-- ============================================================================
