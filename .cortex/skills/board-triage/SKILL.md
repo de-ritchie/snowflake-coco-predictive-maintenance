@@ -5,13 +5,13 @@ description: "Prioritize and work the SnowComotive Jira Kanban board (project SH
 
 # Board Triage (SnowComotive, Jira project SH)
 
-Front door to the backlog. Decides what to work on next and hands off — it does NOT do the actual design/dev/review/doc work itself. That's still the 4 SDLC skills (Design/Developer/Reviewer/Documenter, once built per EPIC-SDLC) or the relevant bundled skill (`snowpark-python`, `developing-with-streamlit-in-snowflake`, `agent-studio`, etc.) depending on the story's label.
+Front door to the backlog. Decides what to work on next and **dispatches the right agent via the `task` tool** — it does NOT do the actual design/dev/review/doc work itself, and it is not itself an agent (it's the skill that decides *what*, then hands off to the agent that decides *how*). The 4 SDLC agents (`Design-agent`/`Developer-agent`/`Reviewer-agent`/`Documenter-agent`, LLD Module 11) handle `sdlc-skill`-labeled dbt-model stories; `Triage-agent` handles everything else. See the `dev-workflow` skill for the git/PR/Jira mechanics those agents use — this skill doesn't own that anymore, only the priority/selection decision.
 
 Traces to: `docs/05-Epics.md` (backlog source of truth), Jira project **SH** (cloudId `5668f0d3-53d5-48a7-b9b5-163c7d4c0574`, site `chirajpepz.atlassian.net`).
 
 ## Priority model (fixed, do not re-derive)
 
-Epics are tiered by label: `P0` (walking skeleton, do first) → `P1` (target scope) → `P2` (stretch/bonus) → `P3` (teardown, deliberately last). Within a tier, Epic order follows `docs/05-Epics.md`'s section order. Stories are tagged with the same tier label as their parent Epic, plus a dev-tool label (`sdlc-skill`, `snowpark`, `streamlit`, `agent`, `ops`, `jira`, `machine-learning`) that determines what to hand off to at Step 4.
+Epics are tiered by label: `P0` (walking skeleton, do first) → `P1` (target scope) → `P2` (stretch/bonus) → `P3` (teardown, deliberately last). Within a tier, Epic order follows `docs/05-Epics.md`'s section order. Stories are tagged with the same tier label as their parent Epic, plus a dev-tool label (`sdlc-skill`, `snowpark`, `streamlit`, `agent`, `ops`, `jira`, `machine-learning`) — `sdlc-skill` means "route through the Design→Developer→Reviewer→Documenter agent chain," any other label means "dispatch `Triage-agent`" (Step 4).
 
 ## Workflow
 
@@ -23,7 +23,7 @@ Query current state with the Atlassian MCP tools (`mcp_atlassian_searchJiraIssue
 project = SH AND status != Done ORDER BY status
 ```
 
-Group results by status column. Project SH's actual workflow (confirmed 2026-08-26, re-verify with `mcp_atlassian_getTransitionsForJiraIssue` if it looks stale) is **To Do → In Progress → Review → Done** — a `Review` status was added specifically to gate on PR review/merge (see Step 4a/4b below). There is no separate Docs column; documentation-only stories (e.g. Documenter-skill work) still go through the same 4 statuses.
+Group results by status column. Project SH's actual workflow (confirmed 2026-08-26, re-verify with `mcp_atlassian_getTransitionsForJiraIssue` if it looks stale) is **To Do → In Progress → Review → Done** — a `Review` status was added specifically to gate on PR review/merge, set by whichever agent is dispatched at Step 4 (via the `dev-workflow` skill), not this skill directly. There is no separate Docs column; documentation-only work (e.g. `Documenter-agent`'s output) still goes through the same 4 statuses.
 
 ### Step 2: Determine current-priority Epic
 
@@ -48,49 +48,22 @@ Present the candidate list to the user (key, summary, labels) and discuss:
 
 Use `ask_user_question` if the choice isn't obvious from the conversation; a plain-text confirmation ("yes, pull S-ENV-1 and S-ENV-2 next") is also acceptable to proceed on.
 
-### Step 4: Move selected stories, then hand off
+### Step 4: Move to In Progress, then dispatch the right agent
 
 **Known tool-gap (confirmed 2026-08-26): moving an issue from Backlog onto the active Kanban Board is NOT possible via the available Atlassian MCP tools.** They wrap Jira's core REST API v3 (issues, search, transitions, comments, links) but not the Agile REST API's backlog/board endpoints — there is no `mcp_atlassian_*` tool for board membership. Do not attempt to work around this by guessing at a hidden field via `editJiraIssue`; it will not work and risks corrupting issue data.
 
 **What this means in practice**: after Step 3's confirmation, tell the user exactly which issues to manually drag from Backlog onto the Board in the Jira UI (or use the board's "Move to Board" bulk action). Status transitions (below) work fine via API regardless of whether an issue has been placed on the board yet — this skill's transition calls are not blocked by board membership, so you can transition an issue to In Progress even before/without confirming it's visually on the board. If the user says they've already moved something to the board manually (as with SH-10/SH-14), just proceed with the transition.
 
 For each confirmed story:
-1. Transition it to **To Do** if not already there (`mcp_atlassian_transitionJiraIssue`) — always call `mcp_atlassian_getTransitionsForJiraIssue` first to get the current transition ID; do not hardcode IDs, they shift as the workflow evolves (a `Review` status was added mid-project — see Step 4a).
-2. When the user says to actually start one (not just queue it): **create the git branch first (Step 4a), then** transition the issue to **In Progress**.
-3. **Hand off based on the story's dev-tool label**:
-   - `sdlc-skill` label **and** the 4 SDLC skills already exist in this repo (check `.cortex/skills/` or wherever they were authored per EPIC-SDLC) → hand off to the **Design** skill first, following the Design → Dev → Review → Docs chain from there. Read the story's Jira description for its FR-ID/LLD-section reference before handing off — that's the Design skill's required input.
-   - `sdlc-skill` label but the 4 skills **don't exist yet** → this story likely *is* one of the EPIC-SDLC stories (SH-12, SH-15–SH-18) or comes before them; just build it directly, no hand-off loop yet.
-   - `snowpark` → work directly using the `snowpark-python` bundled skill.
-   - `streamlit` → `developing-with-streamlit-in-snowflake`.
-   - `agent` → `agent-studio`.
-   - `jira` → direct implementation (stored procedures, Secret/External Access Integration per LLD Module 9); no bundled skill maps 1:1, use `sql-author`/`integrations` as needed.
-   - `ops` → `snowflake-tasks`/`warehouse`/`sql-author` as appropriate (environment/lifecycle scripts).
-   - `machine-learning` → `machine-learning` bundled skill.
-
-### Step 4a: Create the git branch (before any implementation work starts)
-
-**Every story or batch of stories worked In Progress gets its own branch off `main` — no implementation work happens directly on `main`.** This applies to ALL stories regardless of dev-tool label (not just `sdlc-skill`-labeled ones — the Developer skill's own branch/PR habit from LLD Module 11 §2 is now the project-wide norm, not a dbt-only pattern).
-
-**Branch naming**: `<type>/SH-<epicNum>-<storyNum1>[-<storyNum2>...]-<slug>`
-- `<type>` is `feature/` for new capability (the default), or `bugfix/` for fixing something broken/discovered.
-- `<epicNum>` is the parent Epic's numeric ID (e.g. `2` for SH-2), `<storyNum>` is each story's numeric ID, hyphen-separated for a batch.
-- `<slug>` is a short kebab-case description from the story summary.
-- Example, single story SH-16 under Epic SH-5: `feature/SH-5-16-author-design-skill`
-- Example, batch of SH-10+SH-14 under Epic SH-2: `feature/SH-2-10-14-env-setup`
-
-Create it with `git checkout -b <branch-name> main` (or `git switch -c ... main`) via Bash before writing any code/SQL/config for that story. If the user already created uncommitted work on `main` before this rule existed (as happened with SH-10/SH-14), don't retroactively branch it — that's a one-time exception, not a pattern to repeat.
-
-### Step 4b: Raise the PR, move to Review (not Done)
-
-When the story's work is complete:
-1. Commit the changes on the branch (only files relevant to this story — don't sweep in unrelated uncommitted changes without asking).
-2. Push the branch and open a PR to `main` via `gh pr create`, title referencing the Jira key(s) (e.g. `[SH-16] Author Design skill`), body summarizing what changed and linking back to the story's FR-ID/LLD traceability.
-3. Transition the Jira issue to **Review** (not Done) — get the transition ID via `mcp_atlassian_getTransitionsForJiraIssue` first.
-4. Tell the user the PR is up and ask them to review/merge — do not merge it yourself unless explicitly told to.
+1. Transition it to **In Progress** (`mcp_atlassian_transitionJiraIssue`) — always call `mcp_atlassian_getTransitionsForJiraIssue` first to get the current transition ID; do not hardcode IDs, they shift as the workflow evolves.
+2. **Dispatch the right agent via the `task` tool** — this skill's job ends here; it does not do the git/PR/Jira mechanics itself anymore (that's the `dev-workflow` skill, used by whichever agent is dispatched):
+   - `sdlc-skill` label → dispatch **`Design-agent`** (`task` tool, `subagent_type: "Design-agent"`). Pass it the story key and its FR-ID/LLD-section reference. Design-agent brainstorms with the user and freezes a design doc — it does not chain into Developer/Reviewer/Documenter automatically (agents can't spawn other agents, and the user drives sequencing manually per story). Tell the user explicitly that once the design is frozen, they'll need to invoke `Developer-agent`, then `Reviewer-agent`, then `Documenter-agent` themselves when ready.
+   - Any other label (`snowpark`/`streamlit`/`agent`/`jira`/`ops`/`machine-learning`) → dispatch **`Triage-agent`** (`task` tool, `subagent_type: "Triage-agent"`). It handles the full branch→implement→PR→Review cycle itself in one pass.
+3. If a story is one of EPIC-SDLC's own authoring stories (building the agents/skills themselves) — those are infrastructure-for-the-process, not process-following-the-process; dispatch `Triage-agent` for them too (as was done for SH-16/12/17/19), not `Design-agent` on itself.
 
 ### Step 5: Close the loop — only after the PR is merged
 
-Once the user confirms the PR is merged (or you confirm via `gh pr view --json state` if asked to check): transition the issue from **Review** to **Done** and return to Step 1. Do not skip Review and jump straight to Done, even if the PR looks trivial — the human-merge gate is the point (FR-SDLC-02).
+Once the user confirms the PR is merged (or you confirm via `gh pr view --json state` if asked to check): transition the issue from **Review** to **Done** and return to Step 1. Do not skip Review and jump straight to Done, even if the PR looks trivial — the human-merge gate is the point (FR-SDLC-02). The Review transition itself already happened inside the dispatched agent's own workflow (`Documenter-agent` or `Triage-agent`, via `dev-workflow`) — this skill only handles the final Review→Done step, once you've confirmed the merge.
 
 If that was the last open Story in the current-priority Epic, re-run Step 2 to pick the next Epic — tell the user which Epic that is before continuing, don't silently jump tiers.
 
@@ -121,9 +94,9 @@ New work surfaces mid-flight — a discovered bug, an unplanned follow-up, a spi
 - Never move a story tier out of order (don't start P1 work while P0 stories sit untouched in Backlog) unless the user explicitly overrides — ask if it looks like that's about to happen.
 - Never invent stories or re-derive priority from scratch — `docs/05-Epics.md` is the source of truth; if a story described there doesn't exist yet in Jira, say so rather than guessing its content.
 - If a story's parent Epic can't be determined (e.g. Jira `parent` lookup fails), stop and ask rather than guessing which Epic it belongs to.
-- **Never implement a story's work directly on `main`.** Create the branch (Step 4a) before writing anything. If you notice mid-task that work already started on `main` without a branch, stop and ask the user how to proceed rather than silently continuing or silently branching after the fact.
-- Never merge a PR yourself unless the user explicitly says to — merging is the human gate (FR-SDLC-02), not something this skill decides on its own.
+- Never merge a PR yourself unless the user explicitly says to — merging is the human gate (FR-SDLC-02), enforced by whichever agent handled the story, not this skill's own decision to make.
+- Never do implementation work in this skill itself — if you find yourself about to write code/SQL/config directly instead of dispatching an agent, stop; that's a sign Step 4 was skipped.
 
 ## Output
 
-At each invocation: a short status ("board is empty, current priority is EPIC-X, here are its next 3 backlog stories") followed by either a discussion prompt (Step 3) or a confirmation of what was moved/handed off (Step 4/5).
+At each invocation: a short status ("board is empty, current priority is EPIC-X, here are its next 3 backlog stories") followed by either a discussion prompt (Step 3) or confirmation of which agent was dispatched (Step 4) / which stories moved to Done (Step 5).
