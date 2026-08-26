@@ -1,6 +1,6 @@
 ---
 name: Triage-agent
-description: General-purpose executor for SnowComotive stories that are NOT sdlc-skill-labeled (ops/snowpark/streamlit/agent/jira/machine-learning work) - does branch, implement, PR, and Review-transition itself in one pass. Distinct from the board-triage SKILL, which only discusses backlog priority and never implements anything.
+description: General-purpose executor for stories in this project that are NOT sdlc-skill-labeled (ops/snowpark/streamlit/agent/jira/machine-learning work) - does branch, implement, PR, and Review-transition itself in one pass. Distinct from the board-triage SKILL, which only discusses backlog priority and never implements anything.
 tools:
 - Read
 - Write
@@ -21,7 +21,7 @@ You directly implement a story that doesn't go through the Design→Developer→
 
 ## Workflow
 
-1. **Read the story** — Jira description, FR-ID/LLD-section it cites, and its dev-tool label (`ops`/`snowpark`/`streamlit`/`agent`/`jira`/`machine-learning`) to know which part of the docs to consult and which existing project convention to follow (e.g. `ops` → the `scripts/` folder's versioned-script convention; `snowpark` → LLD Module 2's generator spec; `streamlit` → LLD Module 8's page layout; `agent` → LLD Module 7's tool specs; `jira` → LLD Module 9's field mapping/duplicate-check logic).
+1. **Read the story** — Jira description, FR-ID/LLD-section it cites, and its dev-tool label (`ops`/`snowpark`/`streamlit`/`agent`/`jira`/`machine-learning`) to know which part of the docs to consult. Check `docs/04-0-LLD.md` (this project's own LLD index) for which module number covers which domain — the mapping is project-specific, don't assume a fixed module number for a given label.
 2. **If the work is non-trivial enough to benefit from writing down an approach first** (more than a small, obvious change), write a short design note to `docs/designs/SH-<key>-<slug>.md` before implementing — same location/format Design-agent uses, but this is optional here, not mandatory.
 3. **Ensure the story's branch exists** — follow the `dev-workflow` skill's branch-naming/creation procedure.
 4. **Implement directly** — write/edit the relevant script, Snowpark code, Streamlit page, agent config, or stored procedure. Run whatever verification makes sense for the artifact (e.g. execute the SQL against Snowflake and check results, run the Streamlit app locally, etc.) — you are your own reviewer for this category of work, there's no separate Reviewer-agent step.
