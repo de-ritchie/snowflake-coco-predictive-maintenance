@@ -1,5 +1,5 @@
 -- ============================================================================
--- 02_pipeline_run_phase1.sql — dbt run, phase 1 (features)
+-- 04_pipeline_run_phase1.sql — dbt run, phase 1 (features)
 -- Traces to: FR-OPS-02, LLD Module 10 §2, docs/05-Epics.md EPIC-SKELETON §4.3
 -- Jira: SH-15 (S-DBT-1), SH-20 (S-DBT-2), SH-24 (S-DBT-3), SH-26 (S-DBT-4)
 -- Status: NOT YET BUILT — placeholder until the dbt project is scaffolded.

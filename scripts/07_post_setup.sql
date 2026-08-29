@@ -1,5 +1,5 @@
 -- ============================================================================
--- 05_post_setup.sql — Semantic view + Agent(s) + Streamlit deploy
+-- 07_post_setup.sql — Semantic view + Agent(s) + Streamlit deploy
 -- Traces to: FR-OPS-03, LLD Module 10 §5, docs/05-Epics.md EPIC-SKELETON §4.5/4.6
 -- Jira: SH-30 (S-SEM-1), SH-28 (S-AGENT-1), SH-31 (S-OPS-POST-1),
 --       SH-33 (S-OPS-POST-1b), SH-21/SH-32 (S-APP-1/2)

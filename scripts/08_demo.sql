@@ -1,5 +1,5 @@
 -- ============================================================================
--- 06_demo.sql — Live tick injection (demo-only manual trigger)
+-- 08_demo.sql — Live tick injection (demo-only manual trigger)
 -- Traces to: FR-OPS-04, FR-PL-04b, LLD Module 10 §6, docs/05-Epics.md
 --            EPIC-SKELETON §4.6
 -- Jira: SH-25 (S-DEMO-1) — demo script v1 (single manual tick)

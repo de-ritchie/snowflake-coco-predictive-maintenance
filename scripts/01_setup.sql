@@ -51,8 +51,9 @@ CREATE STAGE IF NOT EXISTS snowcomotive.raw.landing_stage
 GRANT READ, WRITE ON STAGE snowcomotive.raw.landing_stage TO ROLE snowcomotive_role;
 
 -- ============================================================================
--- NEXT (not yet in this file): thin data-gen invocation + COPY INTO Raw
--- tables (SH-11 S-DATA-2, SH-13 S-DATA-1) — the Snowpark generator script and
--- its Stage-upload step are a separate Python artifact (see LLD Module 2),
--- invoked from a wrapper that will be appended here once S-DATA-1/2 build it.
+-- NEXT: RAW table DDL + thin data-gen upload/COPY INTO (SH-11 S-DATA-2,
+-- SH-13 S-DATA-1) — implemented as two separate scripts rather than
+-- appended here: scripts/02_setup_raw_ddl.sql (RAW.EQUIPMENT /
+-- RAW.SENSOR_READING / RAW.CMMS_LOG DDL) and scripts/03_setup_raw_load.sql
+-- (PUT + COPY INTO for the generator's Parquet output).
 -- ============================================================================
