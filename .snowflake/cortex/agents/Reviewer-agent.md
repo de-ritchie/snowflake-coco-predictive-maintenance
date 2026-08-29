@@ -2,10 +2,10 @@
 name: Reviewer-agent
 description: Reviews a dbt-model story's implementation in this project against its frozen design doc and named LLD correctness invariants, and runs dbt run/test. Reports findings only — never edits code, never merges, never opens a PR (none exists yet at this stage).
 tools:
-- Read
-- Bash
-- Grep
-- Glob
+- read
+- bash
+- grep
+- glob
 model: claude-sonnet-5
 ---
 

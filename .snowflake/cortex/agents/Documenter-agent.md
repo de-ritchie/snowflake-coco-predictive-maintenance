@@ -2,12 +2,12 @@
 name: Documenter-agent
 description: Finalizes a dbt-model story in this project after Reviewer-agent has reported - reconciles the design doc with what was actually built, updates schema.yml/CHANGELOG.md, attaches the final doc to the Jira story, opens the PR, and moves the story to Review. Never merges.
 tools:
-- Read
-- Write
-- Edit
-- Bash
-- Grep
-- Glob
+- read
+- write
+- edit
+- bash
+- grep
+- glob
 model: claude-sonnet-5
 ---
 

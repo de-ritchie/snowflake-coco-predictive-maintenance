@@ -11,37 +11,42 @@ Traces to: `docs/05-Epics.md` (backlog source of truth), Jira project **SH** (cl
 
 ## Priority model (fixed, do not re-derive)
 
-Epics are tiered by label: `P0` (walking skeleton, do first) → `P1` (target scope) → `P2` (stretch/bonus) → `P3` (teardown, deliberately last). Within a tier, Epic order follows `docs/05-Epics.md`'s section order. Stories are tagged with the same tier label as their parent Epic, plus a dev-tool label (`sdlc-skill`, `snowpark`, `streamlit`, `agent`, `ops`, `jira`, `machine-learning`) — `sdlc-skill` means "route through the Design→Developer→Reviewer→Documenter agent chain," any other label means "dispatch `Triage-agent`" (Step 4).
+Two signals exist, and they are not the same granularity — do not conflate them:
+
+1. **Jira `priority` field (Highest/High/Medium/Low/Lowest)** — the fine-grained, authoritative "what's actually next" signal. This is set per-issue in Jira and can (and does) differ from an issue's label tier — e.g. SH-18 carries label `P0` but has `priority = Lowest`, because it's polish/publishing work on already-merged agents, not build-blocking. **This field wins whenever it's populated.** Sort/select by it first.
+2. **Label tiers (`P0`/`P1`/`P2`/`P3`) + doc-section order** — the coarse, structural signal from `docs/05-Epics.md`: Epics are tiered by label (`P0` walking skeleton → `P1` target scope → `P2` stretch/bonus → `P3` teardown), and within a tier Epic order follows the doc's section order. Use this **only as a tiebreak** among issues that carry the same Jira `priority` value, or as a fallback when `priority` is unset/uninformative (e.g. everything defaulted to Medium with nothing standing out).
+
+Stories are also tagged with a dev-tool label (`sdlc-skill`, `snowpark`, `streamlit`, `agent`, `ops`, `jira`, `machine-learning`) — `sdlc-skill` means "route through the Design→Developer→Reviewer→Documenter agent chain," any other label means "dispatch `Triage-agent`" (Step 4). This routing label is orthogonal to priority — check it independently at Step 4.
 
 ## Workflow
 
 ### Step 1: Check the board
 
-Query current state with the Atlassian MCP tools (`mcp_atlassian_searchJiraIssuesUsingJql`):
+Query current state with the Atlassian MCP tools (`mcp_atlassian_searchJiraIssuesUsingJql`) — always sort server-side via JQL rather than pulling everything unsorted and sorting locally:
 
 ```
-project = SH AND status != Done ORDER BY status
+project = SH AND status != Done ORDER BY priority DESC, status
 ```
 
-Group results by status column. Project SH's actual workflow (confirmed 2026-08-26, re-verify with `mcp_atlassian_getTransitionsForJiraIssue` if it looks stale) is **To Do → In Progress → Review → Done** — a `Review` status was added specifically to gate on PR review/merge, set by whichever agent is dispatched at Step 4 (via the `dev-workflow` skill), not this skill directly. There is no separate Docs column; documentation-only work (e.g. `Documenter-agent`'s output) still goes through the same 4 statuses.
+Request only the fields you need (`fields: ["summary", "status", "priority", "labels", "parent", "issuetype"]`) to keep the payload manageable — Jira's API nests the full parent-Epic object inside every Story regardless, so large boards will still produce a big response; see "Tooling notes" below for how to handle that without resorting to ad-hoc scripting. Group results by status column. Project SH's actual workflow (confirmed 2026-08-26, re-verify with `mcp_atlassian_getTransitionsForJiraIssue` if it looks stale) is **To Do → In Progress → Review → Done** — a `Review` status was added specifically to gate on PR review/merge, set by whichever agent is dispatched at Step 4 (via the `dev-workflow` skill), not this skill directly. There is no separate Docs column; documentation-only work (e.g. `Documenter-agent`'s output) still goes through the same 4 statuses.
 
 ### Step 2: Determine current-priority Epic
 
 **If the board (non-Backlog columns) already has active stories** — the current-priority Epic is whichever Epic those active stories belong to. Continue working that Epic; do not jump to a different tier mid-stream without asking.
 
 **If the board is empty** (everything sitting in Backlog/To Do untouched):
-1. Query Epics: `project = SH AND issuetype = Epic ORDER BY labels`
-2. Pick the lowest-tier Epic (`P0` first) that still has at least one Story not in Done.
-3. That is the current-priority Epic.
+1. Query all open Stories directly, sorted by the real signal: `project = SH AND issuetype = Story AND status = "To Do" ORDER BY priority DESC, key`. Look at the `priority` field on the top results first — Jira's own field, not the label tier.
+2. If one or more Stories carry a distinctly higher `priority` (e.g. Highest, when the rest are Medium/Lowest) — those are the current-priority candidates, **regardless of which Epic they belong to or what label tier they carry**. Their shared parent Epic (if they share one) is the current-priority Epic.
+3. If `priority` is unset or uniformly uninformative across all open Stories (e.g. everything is Medium with nothing standing out) — fall back to the label-tier heuristic: query Epics (`project = SH AND issuetype = Epic ORDER BY labels`), pick the lowest-tier Epic (`P0` first, doc-section order as tiebreak) that still has at least one Story not Done.
 
 ### Step 3: Discuss and select — ALWAYS stop here, never auto-pull
 
-Query that Epic's Stories: `project = SH AND parent = "<EPIC-KEY>" AND status = "To Do" ORDER BY key`
+Query that Epic's Stories, still sorted by priority: `project = SH AND parent = "<EPIC-KEY>" AND status = "To Do" ORDER BY priority DESC, key`
 
-(This project's workflow only has 3 statuses — **To Do / In Progress / Done** — there is no `Backlog` status. "Backlog" here is a separate Kanban-board concept: whether an issue has been placed onto the active board view at all, independent of its status. See the tool-gap note in Step 4 below — this skill cannot query or change that board-membership state via the API, only via `status`.)
+(This project's workflow only has 3 statuses — **To Do / In Progress / Done** — there is no `Backlog` status. "Backlog" here is a separate Kanban-board concept: whether an issue has been placed onto the active board view at all, independent of its status. This is a **known tool-gap** (see Step 4) — the Atlassian MCP tools cannot query or change that board-membership state, only `status`. If Jira `priority` is unset/uninformative and label-tier order is also ambiguous, say so honestly rather than claiming to have checked Backlog membership you cannot actually see via these tools.)
 
-Present the candidate list to the user (key, summary, labels) and discuss:
-- Which stories make sense to pull onto the board this round (usually the next 1-3 in doc order, but the user may reorder — e.g. pulling a spike story like S-RUL-0 ahead of its siblings, or skipping a story that's blocked).
+Present the candidate list to the user (key, summary, **priority**, labels) and discuss:
+- Which stories make sense to pull onto the board this round — lead with `priority`-ranked order, not doc order, when priority is populated (usually the next 1-3 by `priority DESC` then key; the user may still reorder — e.g. pulling a spike story like S-RUL-0 ahead of its siblings, or skipping a story that's blocked).
 - What order to work them in.
 
 **Do not transition any issue until the user confirms the selection.** This is a deliberate design choice (human-gated governance, matches FR-SDLC-02) — never auto-pull without asking, even if it would be faster.
@@ -88,6 +93,15 @@ New work surfaces mid-flight — a discovered bug, an unplanned follow-up, a spi
    - Record the new Epic's Jira key somewhere durable (e.g. update the Epic key map in project memory) so future triage sessions can reference it — don't make the user re-explain which key maps to which Epic every time.
 
 **Mechanics reminder** (team-managed/next-gen Jira project SH): Epic↔Story and Story↔Subtask links both use the plain `parent` field — there's no separate Epic Link field. Subtasks parent to a Story/Task, never directly to an Epic.
+
+## Tooling notes: MCP is the only Jira interface, filter/sort server-side
+
+This skill talks to Jira exclusively through the `mcp_atlassian_*` tools — there is no separate raw-API path. Every query must do its filtering and sorting **in the JQL itself** (`AND`, `ORDER BY priority DESC`, etc.), not by pulling a broad result set and post-processing it locally:
+
+- **Sort by priority, not by pulling-then-sorting**: use `ORDER BY priority DESC, key` (or `status`) directly in the JQL string passed to `mcp_atlassian_searchJiraIssuesUsingJql`. Never fetch unsorted results intending to re-sort them yourself afterward.
+- **Filter by priority/label/status in JQL**, e.g. `project = SH AND priority = Highest AND status = "To Do"`, instead of fetching everything and filtering in a script.
+- **Trim `fields`** to just what's needed (`summary`, `status`, `priority`, `labels`, `parent`, `issuetype`) — this is the only lever exposed for payload size; Jira's API will still nest a full parent-Epic sub-object inside every Story regardless, so large boards can still produce a big JSON response.
+- **A local script (bash/python) to parse a tool's own JSON output is a documented last resort only** — justified solely when a single MCP response is too large for the Read tool's line-based view to usefully inspect (e.g. many issues with deep parent nesting), and even then it must only *read/group* data already returned by an MCP call, never substitute for one. If you find yourself reaching for a script to filter or sort, stop and move that filter/sort into the JQL instead — that's almost always possible and is the correct fix.
 
 ## Guardrails
 

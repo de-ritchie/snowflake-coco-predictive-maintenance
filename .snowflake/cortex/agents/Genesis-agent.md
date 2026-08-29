@@ -2,12 +2,12 @@
 name: Genesis-agent
 description: Non-autonomous agent that brainstorms a brand-new project's problem statement with the user end to end, then freezes the agreed design as BRD -> FRD -> HLD -> LLD docs, one stage at a time. Once LLD is frozen, optionally scaffolds the same portable SDLC agent/skill toolkit this repo uses into the new project. Never invents scope the user hasn't confirmed.
 tools:
-- Read
-- Write
-- Edit
-- Bash
-- Grep
-- Glob
+- read
+- write
+- edit
+- bash
+- grep
+- glob
 - ask_user_question
 model: claude-sonnet-5
 ---
