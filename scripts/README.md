@@ -7,7 +7,7 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | 01 | `01_setup.sql` | Env spin-up (role/warehouse/db/schemas/stage) | **Built** (v0 scope: S-ENV-1/S-ENV-2) | SH-10, SH-14 (Done) |
 | 02 | `02_setup_raw_ddl.sql` | RAW table DDL (RAW.EQUIPMENT/SENSOR_READING/CMMS_LOG) | **Built** | SH-11 (S-DATA-2) |
 | 03 | `03_setup_raw_load.sql` | Upload + load thin generator output into RAW.EQUIPMENT/SENSOR_READING | **Built** | SH-11 (S-DATA-2) |
-| 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Not built | SH-15, SH-20, SH-24, SH-26 |
+| 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v1, thin, no phase split yet) | SH-15, SH-20, SH-24, SH-26 |
 | 05 | `05_train_models.sql` | Model training | Not built | SH-22 (IsolationForest), SH-44 (RUL, P1) |
 | 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream | Not built | SH-23 |
 | 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | Not built | SH-30, SH-28, SH-31, SH-33 |
@@ -20,7 +20,10 @@ Run order: 01 → 02 → 03 → 04 → 05 → 06 → 07, then 08 on demand durin
 runs `01_setup.sql` → generates thin data via `generator/thin_sensor_generator.py`
 (called in-process) → `02_setup_raw_ddl.sql` → `03_setup_raw_load.sql`, all through
 one `snow-coco` connector session (OAuth, token cached via `keyring` — see
-`AGENTS.md` "Local dev environment"). `down` runs `09_teardown.sql`.
+`AGENTS.md` "Local dev environment"), then shells out to `dbt run` / `dbt seed` /
+`dbt test` inside `predictive_maintenance_dbt/` (its own committed
+`profiles.yml`, same `snow-coco` account, dbt manages its own connection
+separately from the connector session above). `down` runs `09_teardown.sql`.
 
 **The `snow` CLI is not used in this project.** It was tried and dropped: the
 MFA-authenticated `snow` CLI connection required a fresh TOTP passcode on every

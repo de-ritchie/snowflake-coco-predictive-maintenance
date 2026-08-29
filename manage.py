@@ -10,16 +10,19 @@ up:
   2. generator/thin_sensor_generator.py -- produce ./output/*.parquet
   3. scripts/02_setup_raw_ddl.sql   -- RAW.EQUIPMENT / SENSOR_READING / CMMS_LOG DDL
   4. scripts/03_setup_raw_load.sql  -- PUT + COPY INTO the generated Parquet
+  5. dbt run / dbt test (predictive_maintenance_dbt/) -- Raw -> Standardized ->
+     Consumption models + seeds (SH-15/SH-20/SH-24/SH-26)
 
 down:
   1. scripts/09_teardown.sql -- drops database (cascades), role, warehouse
 
 This only covers what's built so far (thin skeleton, EPIC-SKELETON P0) -- later
-stories (dbt, models, semantic view, agents, Streamlit) extend `up`, not this
+stories (models, semantic view, agents, Streamlit) extend `up`, not this
 file's shape.
 """
 
 import pathlib
+import subprocess
 import sys
 
 import snowflake.connector
@@ -28,6 +31,7 @@ import typer
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 GENERATOR = REPO_ROOT / "generator" / "thin_sensor_generator.py"
+DBT_DIR = REPO_ROOT / "predictive_maintenance_dbt"
 CONNECTION_NAME = "snow-coco"
 
 # Default thin-skeleton demo window -- override via --start-date/--end-date.
@@ -70,6 +74,18 @@ def generate_thin_data(start_date: str, end_date: str) -> None:
     thin_sensor_generator.main()
 
 
+def run_dbt() -> None:
+    # Shells out to the bare `dbt` binary -- only on PATH inside the uv venv,
+    # so this script must be invoked as `uv run python manage.py up`, not a
+    # bare `python manage.py up`.
+    print("--- Running dbt run ---")
+    subprocess.run(["dbt", "run"], cwd=DBT_DIR, check=True)
+    print("--- Running dbt seed ---")
+    subprocess.run(["dbt", "seed"], cwd=DBT_DIR, check=True)
+    print("--- Running dbt test ---")
+    subprocess.run(["dbt", "test"], cwd=DBT_DIR, check=True)
+
+
 def run_up(start_date: str, end_date: str) -> None:
     conn = snowflake.connector.connect(connection_name=CONNECTION_NAME)
     try:
@@ -80,6 +96,7 @@ def run_up(start_date: str, end_date: str) -> None:
         run_sql_file(cur, SCRIPTS_DIR / "03_setup_raw_load.sql")
     finally:
         conn.close()
+    run_dbt()
     print("--- up complete ---")
 
 
