@@ -149,8 +149,12 @@ def main() -> None:
 
     equipment_path = os.path.join(args.output_dir, "equipment.parquet")
     sensor_path = os.path.join(args.output_dir, "sensor_reading.parquet")
-    equipment_df.to_parquet(equipment_path, index=False)
-    sensor_df.to_parquet(sensor_path, index=False)
+    # use_deprecated_int96_timestamps=True: Snowflake's Parquet COPY INTO reader
+    # misinterprets the newer INT64 TIMESTAMP logical-type unit annotation (seen
+    # misreading microsecond values as seconds, off by 1e6 -> "Invalid date").
+    # The older INT96 encoding is unambiguous and what Snowflake expects.
+    equipment_df.to_parquet(equipment_path, index=False, use_deprecated_int96_timestamps=True)
+    sensor_df.to_parquet(sensor_path, index=False, use_deprecated_int96_timestamps=True)
 
     print(f"Wrote {len(equipment_df)} equipment row(s) to {equipment_path}")
     print(f"Wrote {len(sensor_df)} sensor_reading row(s) to {sensor_path}")

@@ -1,8 +1,8 @@
 -- ============================================================================
--- 04_pipeline_run_phase2.sql — dbt run, phase 2 (inference & downstream)
+-- 06_pipeline_run_phase2.sql — dbt run, phase 2 (inference & downstream)
 -- Traces to: FR-OPS-02b, LLD Module 10 §4, docs/05-Epics.md EPIC-SKELETON §4.4
 -- Jira: SH-23 (S-MODEL-3, inference dynamic table)
--- Status: NOT YET BUILT — placeholder until 03_train_models has run at least
+-- Status: NOT YET BUILT — placeholder until 05_train_models has run at least
 -- once (this step fails loudly, by design, if run before a model exists).
 --
 -- Will run:
