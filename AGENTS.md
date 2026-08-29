@@ -23,6 +23,12 @@ SnowComotive — Predictive Maintenance & OEE Command Center. A hackathon submis
 
 **Known limitation**: `dev-workflow` is NOT yet parameterized — it hardcodes this repo's Jira cloudId/project key directly in prose. `Genesis-agent`'s scaffold step copies it with placeholders for a new project's Jira details, but that's a manual fill-in, not a clean config file. Flagged as a possible future improvement, not built.
 
+## Local dev environment
+
+- **Package management: `uv`**, not pip/conda/poetry. Dependencies live in `pyproject.toml` (+ `uv.lock`, committed). Run scripts via `uv run <script>.py`, add deps via `uv add <pkg>` — never call `pip install` directly. The `.venv` is already provisioned; agents should not create or rebuild it unless a dependency is genuinely missing (check `pyproject.toml`/`uv.lock` first).
+- **Snowflake connection: named connection `snow-coco`** in `~/.snowflake/connections.toml` (`account = HUFZQDD-UPC40501`, `authenticator = oauth_authorization_code`). Any Python/Snowpark code that needs a live session should resolve it via this connection name (e.g. `Session.builder.config("connection_name", "snow-coco").create()` or `snowflake.connector.connect(connection_name="snow-coco")`) — never hardcode credentials or invent a different connection.
+- Python scripts that aren't dbt models live outside `scripts/` (which is reserved for the numbered SQL lifecycle scripts, `scripts/0N_*.sql` — see `scripts/README.md`). Keep Python generator/ops scripts in their own top-level dir (e.g. `generator/`) to avoid mixing with that numbered SQL sequence.
+
 ## Guidelines
 
 - Never implement a story's work directly on `main` — every story gets its own branch (`dev-workflow` skill's naming convention: `<type>/SH-<epicNum>-<storyNum(s)>-<slug>`).
