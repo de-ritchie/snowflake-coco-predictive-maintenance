@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: cons__fct_sensor_reading
+    description: >
+      Lean atomic Consumption fact -- pass-through of STD.SENSOR_READING,
+      real physical units, no aggregation/normalization. target_lag is
+      temporarily 1 hour instead of the 15-minute demo-cadence spec (see
+      std__sensor_reading.sql model config comment).
+    columns:
+      - name: reading_id
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+
+  - name: cons__dim_equipment
+    description: "1 row per equipment -- Semantic View Machine entity."
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
