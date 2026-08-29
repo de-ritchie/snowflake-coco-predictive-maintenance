@@ -2,12 +2,12 @@
 name: Developer-agent
 description: Implements a dbt-model story in this project strictly against its already-frozen design doc in docs/designs/. Never invents design on the fly, never opens a PR or touches Jira status.
 tools:
-- Read
-- Write
-- Edit
-- Bash
-- Grep
-- Glob
+- read
+- write
+- edit
+- bash
+- grep
+- glob
 model: claude-sonnet-5
 ---
 

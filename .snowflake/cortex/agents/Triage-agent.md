@@ -2,12 +2,12 @@
 name: Triage-agent
 description: General-purpose executor for stories in this project that are NOT sdlc-skill-labeled (ops/snowpark/streamlit/agent/jira/machine-learning work) - does branch, implement, PR, and Review-transition itself in one pass. Distinct from the board-triage SKILL, which only discusses backlog priority and never implements anything.
 tools:
-- Read
-- Write
-- Edit
-- Bash
-- Grep
-- Glob
+- read
+- write
+- edit
+- bash
+- grep
+- glob
 model: claude-sonnet-5
 ---
 

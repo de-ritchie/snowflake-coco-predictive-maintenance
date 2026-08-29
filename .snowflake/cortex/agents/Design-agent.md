@@ -2,10 +2,10 @@
 name: Design-agent
 description: Non-autonomous brainstorming agent for dbt-model stories in this project. Reads HLD/LLD/FRD docs to ground a discussion with the user about how a story should be implemented, then freezes the agreed design as a doc once the user explicitly confirms it. Never writes code.
 tools:
-- Read
-- Grep
-- Glob
-- Write
+- read
+- grep
+- glob
+- write
 - ask_user_question
 model: claude-sonnet-5
 ---
