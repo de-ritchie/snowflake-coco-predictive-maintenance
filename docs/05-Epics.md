@@ -30,18 +30,16 @@ This is the missing layer between design (BRD/FRD/HLD/LLD) and execution: a Jira
 
 ## 1. Kanban board shape
 
-**Columns** (mirrors FR-SDLC-02's stage gates):
+**Actual Jira workflow (confirmed against project SH)**: 4 statuses only — **To Do → In Progress → Review → Done**. There is no separate Design/Dev/Docs column; the 4-stage SDLC agent chain (`Design-agent`→`Developer-agent`→`Reviewer-agent`→`Documenter-agent`) all happens *within* In Progress, driven manually by the user one stage at a time (agents can't chain automatically). A story only moves to **Review** once `Documenter-agent` (or `Triage-agent`, for non-dbt stories) has actually opened a PR — never before.
 
-| Column | Meaning | Exit gate |
+| Status | Meaning | Exit gate |
 |---|---|---|
-| Backlog | Not started | — |
-| Design | Design agent producing/produced a design note | Human reviews note |
-| Dev | Developer agent (or `snowpark-python`/`sql-author`/`snowflake-tasks` skill for non-dbt stories) writing code | PR opened |
-| Review | Reviewer agent running tests/acceptance checks | Pass/fail reported |
-| Docs | Documenter agent updating `schema.yml`/changelog | — |
-| Done | Merged, card closed | Human merge |
+| To Do | Queued, not started | User decides to start it |
+| In Progress | Being worked — for `sdlc-skill`-labeled stories, this spans the whole Design→Developer→Reviewer→Documenter chain; for everything else, `Triage-agent` handles it start-to-finish | `Documenter-agent`/`Triage-agent` opens a PR |
+| Review | PR open, awaiting human review/merge | Human merges |
+| Done | Merged | — |
 
-Stories that are **not** dbt-model work (Snowpark scripts, Streamlit, agent config, Jira setup, environment/lifecycle scripts) skip the Design/Dev/Review/Docs SDLC-agent gate — `Triage-agent` handles them start-to-finish — but still move through the same 4 statuses (To Do/In Progress/Review/Done) manually.
+Stories that are **not** dbt-model work (Snowpark scripts, Streamlit, agent config, Jira setup, environment/lifecycle scripts) skip the Design/Developer/Reviewer/Documenter chain entirely — `Triage-agent` handles them start-to-finish — but move through the same 4 statuses.
 
 **Labels**: `P0`/`P1`/`P2`/`P3` (priority tier), `fr-<id>` (traceability, one or more per story), `sdlc-skill` (stories routed through the Design→Developer→Reviewer→Documenter agent chain — label name predates the agent/skill split and is kept as-is to avoid relabeling ~20 existing Jira issues; it now means "agent chain," not literally "skill") vs `snowpark`/`streamlit`/`agent`/`ops`/`jira`/`machine-learning` (routed to `Triage-agent` instead), `script-vN` (which revision of a lifecycle script a story touches — see §2).
 
@@ -77,7 +75,7 @@ Rather than one "ops" epic built once, each lifecycle script is a living artifac
 
 ## 3. EPIC-SDLC — Author the 4 SDLC agents + dev-workflow skill (P0, built first)
 
-Traces to: FR-SDLC-01/02/03, LLD Module 11. **Superseded design note (2026-08-26)**: originally scoped as 4 CoCo *skills*; reworked to 4 real subagents (own context, dispatched via the `task` tool, `.snowflake/cortex/agents/`) plus the `dev-workflow` skill they share for git/PR/Jira mechanics — "agents are the powerhouse where skills are applied." Story titles below still say "skill" (matching the already-created Jira issues); read as "agent."
+Traces to: FR-SDLC-01/02/03, LLD Module 11. **Superseded design note (2026-08-26)**: originally scoped as 4 CoCo *skills*; reworked to 5 real subagents (own context, dispatched via the `task` tool, `.snowflake/cortex/agents/`) plus the `dev-workflow` skill they share for git/PR/Jira mechanics — "agents are the powerhouse where skills are applied." The 5th, `Triage-agent`, handles non-dbt-model stories (not tracked as its own Story here — built alongside the other 4 as part of the same rework). A 6th, `Genesis-agent` (project-bootstrapping — writes a brand-new project's BRD→FRD→HLD→LLD from scratch, then scaffolds this whole toolkit into it), was added later in the same PR and is also not tracked as its own Story, per explicit user direction not to open new tickets for this work. Story titles below still say "skill" (matching the already-created Jira issues); read as "agent."
 
 | Story | Task/Sub-tasks | Traces to |
 |---|---|---|
@@ -85,9 +83,9 @@ Traces to: FR-SDLC-01/02/03, LLD Module 11. **Superseded design note (2026-08-26
 | **S-SDLC-2**: Author Developer agent | T1: Write `Developer-agent.md` (implements strictly against the frozen design doc; writes dbt `.sql`+`.yml`, follows Module 1/3/4 conventions; no PR, no status change). T2: Test against a real story. | Module 11 §2 |
 | **S-SDLC-3**: Author Reviewer agent | T1: Write `Reviewer-agent.md` (runs `dbt run --select <model>+`/`dbt test`, checks doc adherence + named invariants e.g. leakage-safety FR-PL-03, incremental-refresh FR-FS-09; reports only, no PR exists yet at this stage). T2: Test against a real PR. | Module 11 §3 |
 | **S-SDLC-4**: Author Documenter agent | T1: Write `Documenter-agent.md` (reconciles the design doc with what was built, updates `schema.yml`/`CHANGELOG.md`, attaches the final doc to the Jira story, opens the PR, moves the story to Review — via the `dev-workflow` skill). T2: Test against a real merge. | Module 11 §4 |
-| **S-SDLC-5**: Publish all 4 as reusable agents | T1: Confirm frontmatter/format matches CoCo custom-agent packaging. T2: Add short cross-references between them (Design→Dev→Review→Docs). | FR-SDLC-03 |
+| **S-SDLC-5**: Publish all reusable agents | T1: Confirm frontmatter/format matches CoCo custom-agent packaging, for all 6 agents (Design/Developer/Reviewer/Documenter/Triage/Genesis) + 2 skills, not just the original 4. T2: Add short cross-references between them (Design→Dev→Review→Docs). | FR-SDLC-03 |
 
-**Definition of Done**: all 4 agents (+ `dev-workflow` skill) exist and have each been exercised at least once against a real (non-throwaway) Story before EPIC-SKELETON's dbt-model stories begin.
+**Definition of Done**: all 4 dbt-model-chain agents (+ `dev-workflow` skill) exist and have each been exercised at least once against a real (non-throwaway) Story before EPIC-SKELETON's remaining dbt-model stories begin. **Not yet met as of 2026-08-26** — SH-16/12/17/19 are merged (the files exist and are genericized), but none has actually run against a real dbt-model story yet, since no dbt project exists at this point. "Merged" and "exercised" are different bars; don't conflate them when deciding this Epic is done.
 
 ---
 
