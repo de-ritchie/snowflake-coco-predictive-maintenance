@@ -1,0 +1,16 @@
+version: 2
+
+seeds:
+  - name: cons__dim_sensor_baseline
+    description: >
+      Static baseline reference data (Module 2 SENSOR_BASELINES) -- 3 rows
+      only, CNC Boring x VIBRATION/TEMPERATURE/RPM, matching the thin
+      dataset's actual scope. The other 6 rows (CNC Milling, CNC Horizontal)
+      are deferred to EPIC-FULLDATA once those machines' RAW data lands.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: sensor_type
+        tests:
+          - not_null

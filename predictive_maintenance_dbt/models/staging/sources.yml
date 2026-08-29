@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: raw
+    database: snowcomotive
+    schema: raw
+    tables:
+      - name: equipment
+      - name: sensor_reading
+      - name: cmms_log

@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: std__equipment
+    description: "Standardized equipment -- type/key conformance only, thin pass-through of RAW.EQUIPMENT."
+
+  - name: std__sensor_reading
+    description: >
+      Standardized sensor reading -- same grain as RAW.SENSOR_READING, adds
+      hours_since_last_service (leakage-safe ASOF join, strictly
+      reading_ts > event_end_ts) and hours_since_install (join to
+      STD.EQUIPMENT.commissioned_ts). target_lag is temporarily 1 hour
+      (see model config comment) instead of the FR-PL-04a spec of 15 minutes.
+    columns:
+      - name: reading_id
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - not_null

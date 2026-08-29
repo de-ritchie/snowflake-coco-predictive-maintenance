@@ -44,6 +44,14 @@ CREATE SCHEMA IF NOT EXISTS snowcomotive.feast;
 GRANT ALL ON ALL SCHEMAS IN DATABASE snowcomotive TO ROLE snowcomotive_role;
 GRANT ALL ON FUTURE SCHEMAS IN DATABASE snowcomotive TO ROLE snowcomotive_role;
 
+-- Table-level grants (not covered by the schema-level grants above) — needed
+-- because dbt's dynamic tables run as their owner role (snowcomotive_role)
+-- and must be able to read every RAW table they reference, regardless of
+-- which role originally created that table (see
+-- docs/designs/2 - SH-2-15-20-24-26-dbt-scaffold-consumption.md, blocker log).
+GRANT ALL ON ALL TABLES IN DATABASE snowcomotive TO ROLE snowcomotive_role;
+GRANT ALL ON FUTURE TABLES IN DATABASE snowcomotive TO ROLE snowcomotive_role;
+
 -- --- Stage for the data generator's Parquet landing zone (S-ENV-2) ---
 
 CREATE STAGE IF NOT EXISTS snowcomotive.raw.landing_stage

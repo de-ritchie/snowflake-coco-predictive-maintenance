@@ -1,0 +1,14 @@
+predictive_maintenance_dbt:
+  outputs:
+    dev:
+      account: HUFZQDD-UPC40501
+      authenticator: oauth_authorization_code
+      database: SNOWCOMOTIVE
+      role: SNOWCOMOTIVE_ROLE
+      schema: RAW
+      threads: 1
+      type: snowflake
+      user: CHIRAJ
+      warehouse: SNOWCOMOTIVE_WH
+
+  target: dev
