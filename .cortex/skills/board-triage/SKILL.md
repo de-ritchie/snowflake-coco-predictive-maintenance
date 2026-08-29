@@ -5,7 +5,7 @@ description: "Prioritize and work the SnowComotive Jira Kanban board (project SH
 
 # Board Triage (SnowComotive, Jira project SH)
 
-Front door to the backlog. Decides what to work on next and **dispatches the right agent via the `task` tool** — it does NOT do the actual design/dev/review/doc work itself, and it is not itself an agent (it's the skill that decides *what*, then hands off to the agent that decides *how*). The 4 SDLC agents (`Design-agent`/`Developer-agent`/`Reviewer-agent`/`Documenter-agent`, LLD Module 11) handle `sdlc-skill`-labeled dbt-model stories; `Triage-agent` handles everything else. See the `dev-workflow` skill for the git/PR/Jira mechanics those agents use — this skill doesn't own that anymore, only the priority/selection decision.
+Front door to the backlog. Decides what to work on next, moves it to In Progress, and initiates `dev-workflow` (branch creation) — then **stops and hands control back to the user**. It does NOT dispatch Design/Developer/Reviewer/Documenter/Triage agents and does NOT do any design/dev/review/doc work itself. Its only dependent skill is `dev-workflow` (git/PR/Jira mechanics). The user decides when and which agent to invoke for actual implementation — that is a separate, explicit action outside this skill.
 
 Traces to: `docs/05-Epics.md` (backlog source of truth), Jira project **SH** (cloudId `5668f0d3-53d5-48a7-b9b5-163c7d4c0574`, site `chirajpepz.atlassian.net`).
 
@@ -53,22 +53,23 @@ Present the candidate list to the user (key, summary, **priority**, labels) and 
 
 Use `ask_user_question` if the choice isn't obvious from the conversation; a plain-text confirmation ("yes, pull S-ENV-1 and S-ENV-2 next") is also acceptable to proceed on.
 
-### Step 4: Move to In Progress, then dispatch the right agent
+### Step 4: Move to In Progress, initiate dev-workflow, then stop
 
 **Known tool-gap (confirmed 2026-08-26): moving an issue from Backlog onto the active Kanban Board is NOT possible via the available Atlassian MCP tools.** They wrap Jira's core REST API v3 (issues, search, transitions, comments, links) but not the Agile REST API's backlog/board endpoints — there is no `mcp_atlassian_*` tool for board membership. Do not attempt to work around this by guessing at a hidden field via `editJiraIssue`; it will not work and risks corrupting issue data.
 
 **What this means in practice**: after Step 3's confirmation, tell the user exactly which issues to manually drag from Backlog onto the Board in the Jira UI (or use the board's "Move to Board" bulk action). Status transitions (below) work fine via API regardless of whether an issue has been placed on the board yet — this skill's transition calls are not blocked by board membership, so you can transition an issue to In Progress even before/without confirming it's visually on the board. If the user says they've already moved something to the board manually (as with SH-10/SH-14), just proceed with the transition.
 
+This skill's dependencies stop at **`board-triage`** (this file) and **`dev-workflow`** — it does not dispatch Design/Developer/Reviewer/Documenter/Triage agents itself. Deciding *what's next* and getting the story ready to work is this skill's whole job; actually implementing it is a separate, explicit step the user takes afterward.
+
 For each confirmed story:
 1. Transition it to **In Progress** (`mcp_atlassian_transitionJiraIssue`) — always call `mcp_atlassian_getTransitionsForJiraIssue` first to get the current transition ID; do not hardcode IDs, they shift as the workflow evolves.
-2. **Dispatch the right agent via the `task` tool** — this skill's job ends here; it does not do the git/PR/Jira mechanics itself anymore (that's the `dev-workflow` skill, used by whichever agent is dispatched):
-   - `sdlc-skill` label → dispatch **`Design-agent`** (`task` tool, `subagent_type: "Design-agent"`). Pass it the story key and its FR-ID/LLD-section reference. Design-agent brainstorms with the user and freezes a design doc — it does not chain into Developer/Reviewer/Documenter automatically (agents can't spawn other agents, and the user drives sequencing manually per story). Tell the user explicitly that once the design is frozen, they'll need to invoke `Developer-agent`, then `Reviewer-agent`, then `Documenter-agent` themselves when ready.
-   - Any other label (`snowpark`/`streamlit`/`agent`/`jira`/`ops`/`machine-learning`) → dispatch **`Triage-agent`** (`task` tool, `subagent_type: "Triage-agent"`). It handles the full branch→implement→PR→Review cycle itself in one pass.
-3. If a story is one of EPIC-SDLC's own authoring stories (building the agents/skills themselves) — those are infrastructure-for-the-process, not process-following-the-process; dispatch `Triage-agent` for them too (as was done for SH-16/12/17/19), not `Design-agent` on itself.
+2. **Initiate `dev-workflow`**: create (or reuse, if it already exists) the story's branch per `dev-workflow`'s §1 naming convention (`git checkout -b <type>/SH-<epicNum>-<storyNum>-<slug> main`). Do not implement anything, do not open a PR, do not dispatch any agent.
+3. **Tell the user which agent they'd invoke when ready** — purely informational, not an action taken here: `sdlc-skill` label → `Design-agent` (starts the Design→Developer→Reviewer→Documenter chain); any other label (`snowpark`/`streamlit`/`agent`/`jira`/`ops`/`machine-learning`, including EPIC-SDLC's own authoring stories) → `Triage-agent`.
+4. **Stop and hand control back to the user.** Do not proceed to implementation, PR, or further status transitions on your own — those happen only when the user explicitly invokes the relevant agent themselves.
 
 ### Step 5: Close the loop — only after the PR is merged
 
-Once the user confirms the PR is merged (or you confirm via `gh pr view --json state` if asked to check): transition the issue from **Review** to **Done** and return to Step 1. Do not skip Review and jump straight to Done, even if the PR looks trivial — the human-merge gate is the point (FR-SDLC-02). The Review transition itself already happened inside the dispatched agent's own workflow (`Documenter-agent` or `Triage-agent`, via `dev-workflow`) — this skill only handles the final Review→Done step, once you've confirmed the merge.
+This step is invoked separately by the user once they've driven a story through implementation themselves (via whichever agent they chose at Step 4) and a PR is open and merged — it does not follow automatically from Step 4 in the same turn. Once the user confirms the PR is merged (or you confirm via `gh pr view --json state` if asked to check): transition the issue from **Review** to **Done** and return to Step 1. Do not skip Review and jump straight to Done, even if the PR looks trivial — the human-merge gate is the point (FR-SDLC-02).
 
 If that was the last open Story in the current-priority Epic, re-run Step 2 to pick the next Epic — tell the user which Epic that is before continuing, don't silently jump tiers.
 
@@ -108,9 +109,10 @@ This skill talks to Jira exclusively through the `mcp_atlassian_*` tools — the
 - Never move a story tier out of order (don't start P1 work while P0 stories sit untouched in Backlog) unless the user explicitly overrides — ask if it looks like that's about to happen.
 - Never invent stories or re-derive priority from scratch — `docs/05-Epics.md` is the source of truth; if a story described there doesn't exist yet in Jira, say so rather than guessing its content.
 - If a story's parent Epic can't be determined (e.g. Jira `parent` lookup fails), stop and ask rather than guessing which Epic it belongs to.
-- Never merge a PR yourself unless the user explicitly says to — merging is the human gate (FR-SDLC-02), enforced by whichever agent handled the story, not this skill's own decision to make.
-- Never do implementation work in this skill itself — if you find yourself about to write code/SQL/config directly instead of dispatching an agent, stop; that's a sign Step 4 was skipped.
+- Never merge a PR yourself unless the user explicitly says to — merging is the human gate (FR-SDLC-02).
+- Never dispatch an implementation agent (Design/Developer/Reviewer/Documenter/Triage) from within this skill — Step 4 ends at branch creation; invoking an agent is the user's explicit next action, not this skill's.
+- Never do implementation work in this skill itself — if you find yourself about to write code/SQL/config directly, stop; that's a sign Step 4 was skipped and control wasn't actually handed back.
 
 ## Output
 
-At each invocation: a short status ("board is empty, current priority is EPIC-X, here are its next 3 backlog stories") followed by either a discussion prompt (Step 3) or confirmation of which agent was dispatched (Step 4) / which stories moved to Done (Step 5).
+At each invocation: a short status ("board is empty, current priority is EPIC-X, here are its next 3 backlog stories") followed by either a discussion prompt (Step 3), or confirmation that the story is In Progress with its branch created and control handed back (Step 4), or which stories moved to Done (Step 5).
