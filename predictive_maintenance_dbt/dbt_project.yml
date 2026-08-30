@@ -31,6 +31,8 @@ models:
       +schema: std
     consumption:
       +schema: cons
+    feast:
+      +schema: feast
 
 seeds:
   predictive_maintenance_dbt:
