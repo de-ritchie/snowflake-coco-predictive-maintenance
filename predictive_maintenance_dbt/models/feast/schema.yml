@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: feast__fct_sensor_features_inference
+    description: >
+      Always-fresh rolling/normalized sensor features (FR-FS-01), wide format
+      (one row per equipment_id/reading_ts, one column per sensor_type per
+      window), via the sensor_rolling_features macro. What cons.fct_anomaly_result/
+      cons.fct_rul_prediction read from, not cons.fct_sensor_reading directly.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: reading_ts
+        tests:
+          - not_null
+
+  - name: feast__fct_sensor_features_train
+    description: >
+      Frozen per-training-run snapshot -- identical sensor_rolling_features
+      macro invocation as the inference table, different materialization
+      (table, not dynamic_table) so training reads a fixed point-in-time input.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: reading_ts
+        tests:
+          - not_null

@@ -14,8 +14,14 @@
 -- NOT dropped: the Jira Service Management project (A5) and its Secret /
 -- External Access Integration — external system + credential, manual
 -- cleanup, per FR-OPS-05.
+--
+-- USE ROLE ACCOUNTADMIN is required first: the connection's default role is
+-- snowcomotive_role itself (the OAuth user's account-level default role),
+-- and Snowflake refuses "DROP ROLE <current primary role>" -- discovered
+-- 2026-08-30 running a real teardown, not a hypothetical.
 -- ============================================================================
 
+USE ROLE ACCOUNTADMIN;
 DROP DATABASE IF EXISTS snowcomotive;
 DROP ROLE IF EXISTS snowcomotive_role;
 DROP WAREHOUSE IF EXISTS snowcomotive_wh;

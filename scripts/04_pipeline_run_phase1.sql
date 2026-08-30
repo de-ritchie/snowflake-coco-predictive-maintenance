@@ -1,24 +1,25 @@
 -- ============================================================================
 -- 04_pipeline_run_phase1.sql — dbt run, phase 1 (features)
--- Traces to: FR-OPS-02, LLD Module 10 §2, docs/05-Epics.md EPIC-SKELETON §4.3
--- Jira: SH-15 (S-DBT-1), SH-20 (S-DBT-2), SH-24 (S-DBT-3), SH-26 (S-DBT-4)
--- Status: Built (v1, thin, no phase split yet)
+-- Traces to: FR-OPS-02, LLD Module 10 §2, docs/05-Epics.md EPIC-SKELETON §4.3/§4.4
+-- Jira: SH-15 (S-DBT-1), SH-20 (S-DBT-2), SH-24 (S-DBT-3), SH-26 (S-DBT-4), SH-29 (S-MODEL-1)
+-- Status: Built (v2 — FEAST added, tag:inference+ phase split wired)
 --
 -- dbt is not SQL, so this step is not executable SQL -- it's a
 -- documentation/reference stub, kept for the numbered-script traceability
 -- convention (scripts/README.md). The actual invocation is manage.py's
 -- run_dbt() step, called from run_up() after 03_setup_raw_load.sql, shelling
--- out to `dbt run` / `dbt seed` / `dbt test` inside predictive_maintenance_dbt/
--- using its committed profiles.yml (target: snow-coco, authenticator:
--- oauth_authorization_code).
+-- out to `dbt seed` / `dbt run --exclude tag:inference+` inside
+-- predictive_maintenance_dbt/ using its committed profiles.yml (target:
+-- snow-coco, authenticator: oauth_authorization_code).
 --
--- Builds Raw -> Standardized -> Consumption (this thin slice stops at
--- Consumption; FEAST/inference models don't exist yet -- see
--- docs/designs/2 - SH-2-15-20-24-26-dbt-scaffold-consumption.md).
+-- Builds Raw -> Standardized -> Consumption -> FEAST (feast.fct_sensor_features_inference,
+-- feast.fct_sensor_features_train -- SH-29/S-MODEL-1). `--exclude tag:inference+`
+-- excludes only cons.fct_anomaly_result/fct_rul_prediction (S-MODEL-3, not
+-- yet built) and anything downstream -- neither FEAST table is tagged
+-- 'inference' since neither calls MODEL(...)!predict() itself.
 -- Equivalent to:
---   dbt run
 --   dbt seed
---   dbt test
--- (later split into --select/--exclude tag:inference+ once model-inference
--- tables exist, per S-OPS-PIPE-2 / EPIC-RUL).
+--   dbt run --exclude tag:inference+
+-- (seed must run first -- the FEAST macro's baseline join ref()'s the seed;
+-- running before seeding fails on a from-scratch environment.)
 -- ============================================================================

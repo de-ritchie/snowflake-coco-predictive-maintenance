@@ -1,4 +1,4 @@
-{{ config(materialized='dynamic_table', target_lag='1 hour', schema='std', snowflake_warehouse='snowcomotive_wh', tags=['standardized']) }}
+{{ config(materialized='dynamic_table', target_lag='1 hour', schema='std', snowflake_warehouse='snowcomotive_wh', tags=['standardized'], immutable_where='reading_ts < DATEADD(hour, -1, CURRENT_TIMESTAMP())') }}
 
 -- Leakage-safe joins (FR-PL-02, FR-PL-03). NOTE: target_lag is 1 hour here,
 -- a deliberate temporary deviation from FR-PL-04a's 15-minute spec for this
@@ -10,6 +10,12 @@
 -- already null-pads unmatched left rows (outer semantics by default), so no
 -- prefix is used here; the strict `>` MATCH_CONDITION below is what
 -- preserves FR-PL-03's leakage-safety invariant.
+-- NOTE (empirically confirmed, Module 3 §3 / Module 4 §3's open verification
+-- item): ASOF JOIN blocks native change tracking on this table, forcing
+-- REFRESH_MODE=FULL here. immutable_where declares a frozen region over rows
+-- old enough to never change (backward-only tick invariant), which is what
+-- lets FEAST.FCT_SENSOR_FEATURES_INFERENCE downstream still refresh
+-- INCREMENTAL despite this table itself being FULL.
 SELECT
     r.reading_id,
     r.equipment_id,

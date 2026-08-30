@@ -10,8 +10,13 @@ up:
   2. generator/thin_sensor_generator.py -- produce ./output/*.parquet
   3. scripts/02_setup_raw_ddl.sql   -- RAW.EQUIPMENT / SENSOR_READING / CMMS_LOG DDL
   4. scripts/03_setup_raw_load.sql  -- PUT + COPY INTO the generated Parquet
-  5. dbt run / dbt test (predictive_maintenance_dbt/) -- Raw -> Standardized ->
-     Consumption models + seeds (SH-15/SH-20/SH-24/SH-26)
+  5. dbt seed, then dbt run --exclude tag:inference+ (predictive_maintenance_dbt/)
+     -- Raw -> Standardized -> Consumption -> FEAST (SH-15/SH-20/SH-24/SH-26, SH-29).
+     Seed must run before run now: the FEAST macro's baseline join references
+     the seed via ref(), so a from-scratch env fails if run comes first.
+  6. dbt run --select tag:inference+ (currently a no-op -- no model is tagged
+     'inference' yet; wired now so S-MODEL-3 doesn't need this file re-edited)
+  7. dbt test
 
 down:
   1. scripts/09_teardown.sql -- drops database (cascades), role, warehouse
@@ -78,16 +83,28 @@ def run_dbt() -> None:
     # Shells out to the bare `dbt` binary -- only on PATH inside the uv venv,
     # so this script must be invoked as `uv run python manage.py up`, not a
     # bare `python manage.py up`.
-    print("--- Running dbt run ---")
-    subprocess.run(["dbt", "run"], cwd=DBT_DIR, check=True)
     print("--- Running dbt seed ---")
     subprocess.run(["dbt", "seed"], cwd=DBT_DIR, check=True)
+    # Phase 1: everything except model-inference tables (FR-OPS-02). Seed
+    # must come first -- FEAST's baseline join ref()'s the seed (SH-29).
+    print("--- Running dbt run --exclude tag:inference+ (phase 1: features) ---")
+    subprocess.run(["dbt", "run", "--exclude", "tag:inference+"], cwd=DBT_DIR, check=True)
+    # Phase 2 (FR-OPS-02b): model-inference tables. A no-op today -- no model
+    # is tagged 'inference' yet (S-MODEL-3 not built) -- confirmed dbt exits
+    # 0 on an empty selection, just warns. Model training (FR-OPS-02a,
+    # S-MODEL-2) belongs between phase 1 and phase 2; not yet automated here.
+    print("--- Running dbt run --select tag:inference+ (phase 2: inference) ---")
+    subprocess.run(["dbt", "run", "--select", "tag:inference+"], cwd=DBT_DIR, check=True)
     print("--- Running dbt test ---")
     subprocess.run(["dbt", "test"], cwd=DBT_DIR, check=True)
 
 
 def run_up(start_date: str, end_date: str) -> None:
-    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME)
+    # role='ACCOUNTADMIN' overrides the snow-coco connection's default login
+    # role (SNOWCOMOTIVE_ROLE itself) -- required because 01_setup.sql creates
+    # that role; logging in as a role that doesn't exist yet is a deadlock,
+    # hit for real after a full manage.py down (2026-08-30).
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="ACCOUNTADMIN")
     try:
         cur = conn.cursor()
         run_sql_file(cur, SCRIPTS_DIR / "01_setup.sql")
@@ -101,7 +118,9 @@ def run_up(start_date: str, end_date: str) -> None:
 
 
 def run_down() -> None:
-    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME)
+    # role='ACCOUNTADMIN' -- same deadlock avoidance as run_up(): 09_teardown.sql
+    # drops snowcomotive_role, so the connection must not be logged in as it.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="ACCOUNTADMIN")
     try:
         cur = conn.cursor()
         run_sql_file(cur, SCRIPTS_DIR / "09_teardown.sql")
