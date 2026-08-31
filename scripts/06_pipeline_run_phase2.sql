@@ -2,10 +2,12 @@
 -- 06_pipeline_run_phase2.sql — dbt run, phase 2 (inference & downstream)
 -- Traces to: FR-OPS-02b, LLD Module 10 §4, docs/05-Epics.md EPIC-SKELETON §4.4
 -- Jira: SH-23 (S-MODEL-3, inference dynamic table)
--- Status: NOT YET BUILT — placeholder until 05_train_models has run at least
--- once (this step fails loudly, by design, if run before a model exists).
+-- Status: Built (cons__fct_anomaly_result, tags=['inference']) — confirmed
+-- insertedRows:1/copiedRows:0 on a single new tick (true incremental refresh,
+-- FR-FS-09), see docs/designs/5 - SH-23-inference-dynamic-table.md.
 --
--- Will run:
+-- Runs (via manage.py's run_dbt_phase2_and_test(), not directly as raw SQL
+-- here — this file documents intent, manage.py is the actual executor):
 --   dbt run --select tag:inference+
 --   dbt test --select tag:inference+
 -- ============================================================================

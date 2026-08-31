@@ -25,3 +25,23 @@ models:
       - name: equipment_id
         tests:
           - not_null
+
+  - name: cons__fct_anomaly_result
+    description: >
+      IsolationForest inference (S-MODEL-3, FR-FS-00b) -- no stored procedure,
+      no Task; predict/decision_function called directly in the dynamic
+      table's SELECT against feast__fct_sensor_features_inference.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: reading_ts
+        tests:
+          - not_null
+      - name: is_anomaly
+        tests:
+          - not_null
