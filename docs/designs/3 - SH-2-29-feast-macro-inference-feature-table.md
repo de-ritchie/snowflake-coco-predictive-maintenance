@@ -139,5 +139,4 @@ Discovered while testing 6.3's fix with the thin generator's fixed-calendar-date
 
 ## 8. Open items for the next story (S-MODEL-3)
 
-- The same incremental-refresh verification is required one layer down, for `cons.fct_anomaly_result`/`cons.fct_rul_prediction` — this story's confirmation does not automatically extend to that layer. Must independently confirm `refresh_mode='incremental'` holds there too, and that the registered model's `volatility=IMMUTABLE` (FR-FS-00f) is actually set (a `VOLATILE` method forces a full rescore regardless of everything else being correct).
-- `MODEL(...)!predict()`/`!decision_function()` as a construct has not been empirically tested against Snowflake's incremental-refresh support matrix — flagged, not assumed, in `docs/05-Epics.md`'s existing S-MODEL-3 "Spike/verify" task.
+**Resolved 2026-08-31** — see `docs/designs/5 - SH-23-inference-dynamic-table.md` for `cons.fct_anomaly_result`'s own incremental-refresh confirmation (`insertedRows:1, copiedRows:0`) and the `MODEL(...)!predict()`/`!decision_function()` syntax verification. `cons.fct_rul_prediction` remains open (separate future story).

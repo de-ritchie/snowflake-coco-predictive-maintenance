@@ -28,6 +28,22 @@ models:
       - name: equipment_id
         tests:
           - not_null
+
+  - name: feast__training_dataset_iso
+    description: >
+      IsolationForest training set (S-MODEL-2) -- feast__fct_sensor_features_train
+      plus a time-based dataset_split column (FR-FS-03). No spine/labels --
+      unsupervised, so this is just the frozen snapshot with a split flag.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: dataset_split
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["train", "test"]
       - name: reading_ts
         tests:
           - not_null
