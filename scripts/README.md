@@ -9,7 +9,7 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | 03 | `03_setup_raw_load.sql` | Upload + load thin generator output into RAW.EQUIPMENT/SENSOR_READING | **Built** | SH-11 (S-DATA-2) |
 | 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired) | SH-15, SH-20, SH-24, SH-26, SH-29 |
 | 05 | `05_train_models.sql` | Model training | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
-| 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream | Not built | SH-23 |
+| 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
 | 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | Not built | SH-30, SH-28, SH-31, SH-33 |
 | 08 | `08_demo.sql` | Live tick injection (demo-only manual trigger) | Not built | SH-25 |
 | 09 | `09_teardown.sql` | Full teardown (P3, deliberately last) | Not built | SH-68, SH-61 |
@@ -24,8 +24,10 @@ owned consistently with dbt's own connection) → generates thin data via
 `03_setup_raw_load.sql`, all through one `snow-coco` connector session (OAuth, token
 cached via `keyring` — see `AGENTS.md` "Local dev environment"), then shells out to
 `dbt seed` → `dbt run --exclude tag:inference+` → `05_train_models.sql` (own
-`snowcomotive_role` connector session) → `dbt run --select tag:inference+` (a
-no-op today, wired for S-MODEL-3) → `dbt test` inside `predictive_maintenance_dbt/`
+`snowcomotive_role` connector session, trains and registers the IsolationForest
+model, SH-22) → `dbt run --select tag:inference+` (`cons__fct_anomaly_result`,
+tag `inference` — real inference work now, SH-23, confirmed incrementally
+refreshing) → `dbt test` inside `predictive_maintenance_dbt/`
 (its own committed `profiles.yml`, same `snow-coco` account, dbt manages its own
 connection separately from the connector sessions above). `down` runs
 `09_teardown.sql` as ACCOUNTADMIN (it drops `snowcomotive_role` itself).
