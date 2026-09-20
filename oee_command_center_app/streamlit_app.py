@@ -38,7 +38,6 @@ def render_sidebar() -> None:
     """
     if st.query_params.get("demo") != "1":
         return
-    st.sidebar.divider()
     st.sidebar.button(
         "Inject next tick",
         disabled=True,
@@ -46,11 +45,19 @@ def render_sidebar() -> None:
     )
 
 
-st.set_page_config(page_title="SnowComotive OEE Command Center", layout="wide")
-render_sidebar()
+# Guarded so this only runs when Streamlit executes this file directly as
+# the entry-point page -- pages/1_Overview.py imports get_connection/
+# render_sidebar from this module, and a plain module-level call here would
+# otherwise fire as an import side effect too (and, since Python only runs
+# a module's top-level code once per process, *which* page happens to
+# trigger that first import becomes non-deterministic across sessions --
+# this was the actual root cause of the layout/content inconsistency).
+if __name__ == "__main__":
+    st.set_page_config(page_title="SnowComotive OEE Command Center", layout="wide")
+    render_sidebar()
 
-st.title("SnowComotive OEE Command Center")
-st.write(
-    "Predictive maintenance & OEE command center. "
-    "Use the **Overview** page in the sidebar to view machine health."
-)
+    st.title("SnowComotive OEE Command Center")
+    st.write(
+        "Predictive maintenance & OEE command center. "
+        "Use the **Overview** page in the sidebar to view machine health."
+    )

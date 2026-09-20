@@ -10,6 +10,14 @@ import streamlit as st
 
 from streamlit_app import get_connection, render_sidebar
 
+# Streamlit's classic multipage convention runs each page script
+# independently -- layout must be (re-)requested per script, or a direct
+# reload/URL load of this page falls back to the "centered" default even
+# though streamlit_app.py already requested "wide" (client-side nav from
+# the home page carries that setting over without a full remount, which is
+# why the layout looked different between reload vs. in-app navigation).
+st.set_page_config(page_title="Overview", layout="wide")
+
 SENSOR_TYPES = ["VIBRATION", "TEMPERATURE", "RPM"]
 
 BADGE_STYLE = {
