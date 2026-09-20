@@ -13,5 +13,6 @@ dependencies = [
     "snowflake-connector-python[pandas,secure-local-storage]>=4.7.2",
     "snowflake-snowpark-python>=1.54.0",
     "snowflake-telemetry-python>=0.8.0",
+    "streamlit>=1.62.0",
     "typer>=0.27.2",
 ]

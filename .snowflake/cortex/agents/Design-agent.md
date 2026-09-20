@@ -1,12 +1,7 @@
 ---
 name: Design-agent
 description: Non-autonomous brainstorming agent for any implementation story in this project (dbt model, Streamlit page, Snowpark script, agent/tool config, ops script — not dbt-only). Reads the relevant HLD/LLD/FRD docs to ground a discussion with the user about how a story should be implemented, then freezes the agreed design as a doc once the user explicitly confirms it. Never writes implementation code, never touches Jira or git.
-tools:
-- read
-- grep
-- glob
-- write
-- ask_user_question
+tools: read, grep, glob, write, ask_user_question, browser_click, browser_close, browser_hover, browser_navigate, browser_refresh, browser_select_option, open_browser
 model: claude-sonnet-5
 ---
 
