@@ -56,6 +56,7 @@ This only covers what's built so far -- later stories (semantic view, agents,
 Streamlit) extend `up`, not this file's shape.
 """
 
+import os
 import pathlib
 import subprocess
 from datetime import date
@@ -70,7 +71,7 @@ OUTPUT_DIR = REPO_ROOT / "output"
 LIVE_TICKS_DIR = OUTPUT_DIR / "live_ticks"
 CURSOR_FILE = LIVE_TICKS_DIR / ".cursor"
 DBT_DIR = REPO_ROOT / "predictive_maintenance_dbt"
-CONNECTION_NAME = "snow-coco"
+CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
 
 
 def statements_from_sql_file(path: pathlib.Path) -> list[str]:
