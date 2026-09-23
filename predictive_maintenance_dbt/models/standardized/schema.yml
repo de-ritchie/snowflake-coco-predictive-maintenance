@@ -18,3 +18,67 @@ models:
       - name: equipment_id
         tests:
           - not_null
+
+  - name: std__sales_order
+    description: "Standardized sales order -- type/key conformance only, thin pass-through of RAW.SALES_ORDER."
+    columns:
+      - name: order_week
+        tests:
+          - not_null
+      - name: product_id
+        tests:
+          - not_null
+      - name: variant
+        tests:
+          - not_null
+
+  - name: std__inventory_fg_snapshot
+    description: "Standardized finished-goods inventory snapshot -- type/key conformance only, thin pass-through of RAW.INVENTORY_FG_SNAPSHOT."
+    columns:
+      - name: snapshot_week
+        tests:
+          - not_null
+      - name: product_id
+        tests:
+          - not_null
+      - name: variant
+        tests:
+          - not_null
+
+  - name: std__spare_part_snapshot
+    description: "Standardized spare-part inventory snapshot -- type/key conformance only, thin pass-through of RAW.SPARE_PART_SNAPSHOT."
+    columns:
+      - name: snapshot_week
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: spare_part_name
+        tests:
+          - not_null
+
+  - name: std__calendar
+    description: "Standardized calendar -- type/key conformance only, thin pass-through of RAW.CALENDAR."
+    columns:
+      - name: calendar_date
+        tests:
+          - not_null
+
+  - name: std__cmms_log
+    description: >
+      Standardized CMMS log -- same grain as RAW.CMMS_LOG, adds
+      duration_hours (derived: event_end_ts - event_start_ts, seconds-based
+      DATEDIFF so fractional-hour durations aren't truncated).
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: event_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PM', 'BREAKDOWN']

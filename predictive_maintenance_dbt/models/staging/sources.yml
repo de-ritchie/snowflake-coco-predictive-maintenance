@@ -8,3 +8,7 @@ sources:
       - name: equipment
       - name: sensor_reading
       - name: cmms_log
+      - name: sales_order
+      - name: inventory_fg_snapshot
+      - name: spare_part_snapshot
+      - name: calendar
