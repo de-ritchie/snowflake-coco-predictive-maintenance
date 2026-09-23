@@ -317,6 +317,16 @@ def run_simulation(
     cmms_df = pd.DataFrame(cmms_rows)
     sensor_reading_df = pd.DataFrame(sensor_rows_historical)
 
+    # --- Calendar (full base_monday..last-look-ahead-week's-Sunday range) ---
+    calendar_days = sim_calendar.calendar_dates(base_monday, total_weeks)
+    calendar_df = pd.DataFrame(
+        {
+            "calendar_date": calendar_days,
+            "is_working_day": [sim_calendar.is_working_day(d) for d in calendar_days],
+            "is_holiday": [sim_calendar.is_holiday(d) for d in calendar_days],
+        }
+    )
+
     return {
         "equipment": equipment_df,
         "sensor_reading": sensor_reading_df,
@@ -324,4 +334,5 @@ def run_simulation(
         "sales_order": sales_order_df,
         "inventory_fg_snapshot": fg_snapshot_df,
         "spare_part_snapshot": spare_part_df,
+        "calendar": calendar_df,
     }

@@ -5,22 +5,24 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | # | File | Stage | Status | Jira |
 |---|---|---|---|---|
 | 01 | `01_setup.sql` | Env spin-up (role/warehouse/db/schemas/stage) | **Built** (v0 scope: S-ENV-1/S-ENV-2) | SH-10, SH-14 (Done) |
-| 02 | `02_setup_raw_ddl.sql` | RAW table DDL (RAW.EQUIPMENT/SENSOR_READING/CMMS_LOG) | **Built** | SH-11 (S-DATA-2) |
-| 03 | `03_setup_raw_load.sql` | Upload + load thin generator output into RAW.EQUIPMENT/SENSOR_READING | **Built** | SH-11 (S-DATA-2) |
+| 02 | `02_setup_raw_ddl.sql` | RAW table DDL (RAW.EQUIPMENT/SENSOR_READING/CMMS_LOG + SALES_ORDER/INVENTORY_FG_SNAPSHOT/SPARE_PART_SNAPSHOT/CALENDAR) | **Built** (v2 — EPIC-FULLDATA tables added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
+| 03 | `03_setup_raw_load.sql` | Upload + load full generator output into all 7 RAW tables (RAW.CALENDAR full-replace) | **Built** (v2 — EPIC-FULLDATA tables + CMMS_LOG loading added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
 | 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired) | SH-15, SH-20, SH-24, SH-26, SH-29 |
 | 05 | `05_train_models.sql` | Model training | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
 | 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
 | 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | Not built | SH-30, SH-28, SH-31, SH-33 |
-| 08 | `08_demo.sql` | Live tick injection (demo-only manual trigger) | Not built | SH-25 |
+| 08 | `manage.py demo inject-tick` / `reset-cursor` | Live tick injection (demo-only manual trigger) | **Built** — Python-only, direct synchronous PUT+COPY INTO per invocation; `08_demo.sql` kept only as a historical stub (never executed — see its header) | SH-41 (S-DATA-9) |
 | 09 | `09_teardown.sql` | Full teardown (P3, deliberately last) | Not built | SH-68, SH-61 |
 
-Run order: 01 → 02 → 03 → 04 → 05 → 06 → 07, then 08 on demand during a demo, 09 only when actually tearing down an environment.
+Run order: 01 → 02 → 03 → 04 → 05 → 06 → 07, then `manage.py demo inject-tick` on demand during a demo, 09 only when actually tearing down an environment.
 
 **Primary invocation: `manage.py up` / `manage.py down`** (repo root, `typer` CLI). `up`
 runs `01_setup.sql` as ACCOUNTADMIN (the role it creates doesn't exist yet to log in
 as) → switches to `snowcomotive_role` for everything else (so objects it creates are
-owned consistently with dbt's own connection) → generates thin data via
-`generator/thin_sensor_generator.py` (called in-process) → `02_setup_raw_ddl.sql` →
+owned consistently with dbt's own connection) → generates the full dataset via
+`generator/full_data_generator.py`'s `run_simulation()` (called in-process; produces
+all 7 RAW-bound `output/*.parquet` files plus the trailing-30-day `output/live_ticks/`
+files used by `manage.py demo inject-tick`) → `02_setup_raw_ddl.sql` →
 `03_setup_raw_load.sql`, all through one `snow-coco` connector session (OAuth, token
 cached via `keyring` — see `AGENTS.md` "Local dev environment"), then shells out to
 `dbt seed` → `dbt run --exclude tag:inference+` → `05_train_models.sql` (own
@@ -39,10 +41,14 @@ call, which was rejected as a workflow — see
 not run `snow sql -f` for these scripts; use `manage.py` instead, extending it
 if a new script needs to join the sequence.
 
-`manage.py up`'s generator step already covers the prerequisite below —
-running the generator manually is only needed for standalone debugging outside
-`manage.py`:
+`manage.py up` always does full generation — `--seed` (default 42) and
+`--now` (default today) anchor the generator's 3-year-back/8-week-forward
+window, and `--reuse-dataset-path` skips generation if the given path already
+has the expected output files. `generator/thin_sensor_generator.py` (SH-13's
+original thin skeleton) is left untouched as a standalone reference script —
+`manage.py up` no longer calls it. Running the generator manually is only
+needed for standalone debugging outside `manage.py`:
 
 ```
-uv run generator/thin_sensor_generator.py --start-date 2026-07-01 --end-date 2026-07-31
+uv run python -m generator.full_data_generator --seed 42 --output-dir ./output
 ```

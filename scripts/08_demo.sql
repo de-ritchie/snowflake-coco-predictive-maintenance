@@ -2,16 +2,20 @@
 -- 08_demo.sql — Live tick injection (demo-only manual trigger)
 -- Traces to: FR-OPS-04, FR-PL-04b, LLD Module 10 §6, docs/05-Epics.md
 --            EPIC-SKELETON §4.6
--- Jira: SH-25 (S-DEMO-1) — demo script v1 (single manual tick)
--- Status: NOT YET BUILT.
+-- Jira: SH-25 (S-DEMO-1) — demo script v1 (single manual tick, never built)
+--       SH-41 (S-DATA-9) — supersedes this file's originally-planned scope
+-- Status: STUB — kept as a historical pointer only, not a runnable script.
 --
--- v1 (this file's initial scope): one pre-generated held-back tick file,
--- manual upload + immediate EXECUTE TASK.
--- v2 (EPIC-FULLDATA, S-DATA-9 / EPIC-OPS-HARDEN, S-OPS-HARDEN-2): full
--- 30-day drip-feed set + background pre-demo production mode, added here
--- in place, not as a new file.
+-- Originally planned as a SQL Task-based mechanism (PUT + EXECUTE TASK, see
+-- the retired pseudocode below). SH-41's frozen design doc
+-- (docs/designs/SH-34-36-41-ops-setup-v2-pipeline-wiring.md §6) deliberately
+-- dropped CREATE TASK/EXECUTE TASK in favor of a simpler, synchronous
+-- mechanism: `manage.py demo inject-tick` / `manage.py demo reset-cursor`.
+-- Those Python commands are the actual, runnable implementation — this file
+-- is left in place only so the numbered scripts/ sequence and this repo's
+-- history stay traceable; it is never executed by manage.py or anything else.
 --
--- Will run:
+-- Retired v1 pseudocode (for historical reference only, not implemented):
 --   PUT file://<next_pregenerated_tick>.parquet @snowcomotive.raw.landing_stage/sensor_ticks/;
 --   EXECUTE TASK snowcomotive.raw.sensor_tick_copy_task;
 -- ============================================================================
