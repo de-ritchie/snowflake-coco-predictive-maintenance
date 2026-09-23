@@ -52,6 +52,15 @@ def working_days_in_week(week_monday: date) -> list[date]:
     return [d for d in candidates if is_working_day(d)]
 
 
+def calendar_dates(base_monday: date, total_weeks: int) -> list[date]:
+    """Every date from `base_monday` through the last week's Sunday
+    (`base_monday` .. `week_start(base_monday, total_weeks + 1) - 1 day`),
+    no gaps -- used for RAW.CALENDAR (LLD SS1, design doc SS9 invariant 6)."""
+    end_date = week_start(base_monday, total_weeks + 1) - timedelta(days=1)
+    num_days = (end_date - base_monday).days + 1
+    return [base_monday + timedelta(days=i) for i in range(num_days)]
+
+
 def is_maintenance_weekend(week_num: int) -> bool:
     """Every other week-end (~26/year) is a designated maintenance weekend."""
     return week_num % 2 == 0

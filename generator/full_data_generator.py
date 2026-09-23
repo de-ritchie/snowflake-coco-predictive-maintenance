@@ -26,6 +26,7 @@ BULK_OUTPUT_FILES = [
     "sales_order.parquet",
     "inventory_fg_snapshot.parquet",
     "spare_part_snapshot.parquet",
+    "calendar.parquet",
 ]
 
 

@@ -1,5 +1,6 @@
-"""Environment lifecycle orchestrator (SH-2-11 follow-up) -- docker-compose-style
-`up`/`down` wrapper around the numbered scripts/ SQL lifecycle files.
+"""Environment lifecycle orchestrator (SH-2-11 follow-up, SH-34/36/41 v2)
+-- docker-compose-style `up`/`down` wrapper around the numbered scripts/ SQL
+lifecycle files, plus a `demo` sub-command group for the live-tick drip-feed.
 
 Uses the `snow-coco` OAuth connection (see AGENTS.md "Local dev environment") via
 snowflake-connector-python directly -- no `snow` CLI dependency, so no repeated
@@ -12,9 +13,18 @@ up:
      snowcomotive_role from here on, matching dbt's own connection; running
      as ACCOUNTADMIN throughout caused stored procedures it creates to lack
      SELECT on tables owned by snowcomotive_role (hit for real, SH-22).
-  3. generator/thin_sensor_generator.py -- produce ./output/*.parquet
-  4. scripts/02_setup_raw_ddl.sql   -- RAW.EQUIPMENT / SENSOR_READING / CMMS_LOG DDL
+  3. generator/full_data_generator.py's run_simulation() -- produce
+     ./output/*.parquet (7 bulk tables incl. calendar) + ./output/live_ticks/
+     (trailing-30-day per-tick files for `demo inject-tick`, untouched by up).
+     Supersedes the thin generator (SH-34) -- there is no thin-data path left
+     in `up`; generator/thin_sensor_generator.py itself is left untouched as
+     a standalone reference script.
+  4. scripts/02_setup_raw_ddl.sql   -- RAW table DDL (7 tables incl. the
+     EPIC-FULLDATA additions: sales_order, inventory_fg_snapshot,
+     spare_part_snapshot, calendar)
   5. scripts/03_setup_raw_load.sql  -- PUT + COPY INTO the generated Parquet
+     (RAW.CALENDAR full-replace via TRUNCATE + FORCE=TRUE; every other table
+     relies on COPY INTO's native load-history dedup)
   6. dbt seed, then dbt run --exclude tag:inference+ (predictive_maintenance_dbt/)
      -- Raw -> Standardized -> Consumption -> FEAST (SH-15/SH-20/SH-24/SH-26, SH-29).
      Seed must run before run now: the FEAST macro's baseline join references
@@ -31,27 +41,36 @@ down:
   1. scripts/09_teardown.sql -- drops database (cascades), role, warehouse
      (runs as ACCOUNTADMIN -- 09_teardown.sql drops snowcomotive_role itself)
 
-This only covers what's built so far (thin skeleton, EPIC-SKELETON P0) -- later
-stories (models, semantic view, agents, Streamlit) extend `up`, not this
-file's shape.
+demo (SH-41 / S-DATA-9): no CREATE TASK/EXECUTE TASK -- direct synchronous
+PUT + COPY INTO for a single live_ticks/ file per invocation, deliberately
+simpler than Module 10 §6's literal pseudocode (frozen design doc SH-34-36-41
+§6):
+  inject-tick   -- injects the next tick file after output/live_ticks/.cursor
+                   into RAW.SENSOR_READING, then advances the cursor (only
+                   after COPY INTO confirms success -- safe to re-run after a
+                   partial failure).
+  reset-cursor  -- clears the cursor, restarting the drip-feed from the first
+                   tick for a repeat demo run.
+
+This only covers what's built so far -- later stories (semantic view, agents,
+Streamlit) extend `up`, not this file's shape.
 """
 
 import pathlib
 import subprocess
-import sys
+from datetime import date
 
+import numpy as np
 import snowflake.connector
 import typer
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
-GENERATOR = REPO_ROOT / "generator" / "thin_sensor_generator.py"
+OUTPUT_DIR = REPO_ROOT / "output"
+LIVE_TICKS_DIR = OUTPUT_DIR / "live_ticks"
+CURSOR_FILE = LIVE_TICKS_DIR / ".cursor"
 DBT_DIR = REPO_ROOT / "predictive_maintenance_dbt"
 CONNECTION_NAME = "snow-coco"
-
-# Default thin-skeleton demo window -- override via --start-date/--end-date.
-DEFAULT_START_DATE = "2026-01-05"
-DEFAULT_END_DATE = "2026-01-23"
 
 
 def statements_from_sql_file(path: pathlib.Path) -> list[str]:
@@ -95,21 +114,26 @@ def run_sql_file(cur, path: pathlib.Path) -> None:
             print(f"    {row}")
 
 
-def generate_thin_data(start_date: str, end_date: str) -> None:
-    print(f"--- Generating thin sensor data ({start_date} to {end_date}) ---")
-    sys.path.insert(0, str(GENERATOR.parent))
-    import thin_sensor_generator
+def generate_full_data(seed: int, now: str, reuse_dataset_path: str | None) -> None:
+    print(f"--- Generating full dataset (seed={seed}, now={now}) ---")
+    from generator.full_data_generator import _reuse_dataset_exists, run_simulation
 
-    sys.argv = [
-        "thin_sensor_generator.py",
-        "--start-date",
-        start_date,
-        "--end-date",
-        end_date,
-        "--output-dir",
-        str(REPO_ROOT / "output"),
-    ]
-    thin_sensor_generator.main()
+    if reuse_dataset_path and _reuse_dataset_exists(reuse_dataset_path):
+        print(f"Reusing existing dataset at {reuse_dataset_path} -- skipping generation.")
+        return
+
+    now_date = date.fromisoformat(now)
+    rng = np.random.default_rng(seed)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    tables = run_simulation(rng, now_date, str(OUTPUT_DIR))
+    for name, df in tables.items():
+        path = OUTPUT_DIR / f"{name}.parquet"
+        # use_deprecated_int96_timestamps=True: Snowflake's Parquet COPY INTO reader
+        # misinterprets the newer INT64 TIMESTAMP logical-type unit annotation --
+        # the older INT96 encoding is unambiguous and what Snowflake expects.
+        df.to_parquet(path, index=False, use_deprecated_int96_timestamps=True)
+        print(f"Wrote {len(df)} row(s) to {path}")
 
 
 def run_dbt_phase1() -> None:
@@ -134,7 +158,7 @@ def run_dbt_phase2_and_test() -> None:
     subprocess.run(["dbt", "test"], cwd=DBT_DIR, check=True)
 
 
-def run_up(start_date: str, end_date: str) -> None:
+def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
     # role='ACCOUNTADMIN' overrides the snow-coco connection's default login
     # role (SNOWCOMOTIVE_ROLE itself) -- required because 01_setup.sql creates
     # that role; logging in as a role that doesn't exist yet is a deadlock,
@@ -150,7 +174,7 @@ def run_up(start_date: str, end_date: str) -> None:
         # ACCOUNTADMIN runs with owner's rights and lacked SELECT on
         # feast tables owned by snowcomotive_role (hit for real, SH-22).
         cur.execute("USE ROLE snowcomotive_role")
-        generate_thin_data(start_date, end_date)
+        generate_full_data(seed, now, reuse_dataset_path)
         run_sql_file(cur, SCRIPTS_DIR / "02_setup_raw_ddl.sql")
         run_sql_file(cur, SCRIPTS_DIR / "03_setup_raw_load.sql")
     finally:
@@ -180,22 +204,120 @@ def run_down() -> None:
     print("--- down complete ---")
 
 
+def _live_tick_files() -> list[pathlib.Path]:
+    return sorted(LIVE_TICKS_DIR.glob("*.parquet"))
+
+
+def _read_cursor() -> str | None:
+    if not CURSOR_FILE.exists():
+        return None
+    content = CURSOR_FILE.read_text().strip()
+    return content or None
+
+
+def _write_cursor(filename: str) -> None:
+    CURSOR_FILE.write_text(filename)
+
+
+def inject_next_tick() -> None:
+    files = _live_tick_files()
+    if not files:
+        print(f"No live tick files found in {LIVE_TICKS_DIR}. Run `manage.py up` first.")
+        raise typer.Exit(code=1)
+
+    names = [f.name for f in files]
+    cursor = _read_cursor()
+    if cursor is None or cursor not in names:
+        if cursor is not None:
+            print(f"Cursor references unknown tick '{cursor}' -- restarting from the first file.")
+        next_idx = 0
+    else:
+        next_idx = names.index(cursor) + 1
+
+    if next_idx >= len(files):
+        print("All ticks already injected. Run `manage.py demo reset-cursor` to restart.")
+        raise typer.Exit(code=0)
+
+    next_file = files[next_idx]
+    remaining_after = len(files) - next_idx - 1
+
+    print(f"--- Injecting tick {next_file.name} ---")
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"PUT 'file://{next_file}' @snowcomotive.raw.landing_stage/sensor_reading/ "
+            "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+        )
+        cur.execute(
+            "COPY INTO snowcomotive.raw.sensor_reading "
+            "FROM @snowcomotive.raw.landing_stage/sensor_reading/ "
+            f"FILES = ('{next_file.name}') "
+            "FILE_FORMAT = (TYPE = PARQUET) MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE "
+            "ON_ERROR = 'ABORT_STATEMENT'"
+        )
+        rows = cur.fetchall()
+        columns = [c[0] for c in cur.description]
+    finally:
+        conn.close()
+
+    # Cursor update only after COPY INTO confirms success (design doc
+    # invariant 4) -- a failed PUT/COPY raises before this point and leaves
+    # the cursor untouched, so re-running re-attempts the same tick.
+    status_idx = columns.index("status") if "status" in columns else None
+    if status_idx is not None and rows and not all(r[status_idx] == "LOADED" for r in rows):
+        print(f"COPY INTO did not report LOADED for all files: {rows}")
+        raise typer.Exit(code=1)
+
+    _write_cursor(next_file.name)
+    print(f"Injected {next_file.name}. {remaining_after} tick(s) remaining.")
+
+
+def reset_cursor() -> None:
+    if CURSOR_FILE.exists():
+        CURSOR_FILE.unlink()
+        print(f"Cleared {CURSOR_FILE}.")
+    else:
+        print(f"No cursor file at {CURSOR_FILE} -- already at the start.")
+
+
 app = typer.Typer(help=__doc__, no_args_is_help=True)
+demo_app = typer.Typer(help="Live-tick drip-feed demo commands (SH-41 / S-DATA-9).", no_args_is_help=True)
+app.add_typer(demo_app, name="demo")
 
 
 @app.command("up")
 def up(
-    start_date: str = typer.Option(DEFAULT_START_DATE, "--start-date", help="YYYY-MM-DD"),
-    end_date: str = typer.Option(DEFAULT_END_DATE, "--end-date", help="YYYY-MM-DD"),
+    seed: int = typer.Option(42, "--seed", help="RNG seed passed through to the full generator."),
+    reuse_dataset_path: str = typer.Option(
+        None,
+        "--reuse-dataset-path",
+        help="If set and this path already has the expected bulk output files, skip generation.",
+    ),
+    now: str = typer.Option(
+        str(date.today()), "--now", help="YYYY-MM-DD, anchors the generator's 3yr-back/8wk-forward window."
+    ),
 ) -> None:
-    """Spin up env + generate/load thin data."""
-    run_up(start_date, end_date)
+    """Spin up env + generate/load the full dataset."""
+    run_up(seed, now, reuse_dataset_path)
 
 
 @app.command("down")
 def down() -> None:
     """Tear down env (database/role/warehouse)."""
     run_down()
+
+
+@demo_app.command("inject-tick")
+def demo_inject_tick() -> None:
+    """Inject the next output/live_ticks/ file into RAW.SENSOR_READING."""
+    inject_next_tick()
+
+
+@demo_app.command("reset-cursor")
+def demo_reset_cursor() -> None:
+    """Reset the drip-feed cursor so the next inject-tick starts from the first file."""
+    reset_cursor()
 
 
 if __name__ == "__main__":
