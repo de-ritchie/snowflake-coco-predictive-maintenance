@@ -45,3 +45,57 @@ models:
       - name: is_anomaly
         tests:
           - not_null
+
+  - name: cons__fct_order
+    description: "Lean pass-through of STD.SALES_ORDER -- no aggregation."
+    columns:
+      - name: order_week
+        tests:
+          - not_null
+
+  - name: cons__fct_inventory_fg
+    description: "Lean pass-through of STD.INVENTORY_FG_SNAPSHOT -- snapshot_week renamed period_week."
+    columns:
+      - name: period_week
+        tests:
+          - not_null
+
+  - name: cons__fct_inventory_spare
+    description: "Lean pass-through of STD.SPARE_PART_SNAPSHOT -- snapshot_week renamed period_week."
+    columns:
+      - name: period_week
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+
+  - name: cons__fct_oee
+    description: >
+      OEE fact, line x week grain (FR-PL-07/FR-PL-08). availability_pct is
+      computed from BREAKDOWN-only CMMS downtime against calendar-scheduled
+      hours for sensor-enabled equipment on the line; performance_pct/
+      quality_pct are fixed dbt vars applied identically to every line.
+    columns:
+      - name: line_name
+        tests:
+          - not_null
+      - name: period_week
+        tests:
+          - not_null
+
+  - name: cons__fct_maintenance_event
+    description: "Lean pass-through of STD.CMMS_LOG -- 1 row / event, both PM and BREAKDOWN included."
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+      - name: equipment_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id

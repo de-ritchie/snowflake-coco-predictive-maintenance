@@ -37,3 +37,9 @@ models:
 seeds:
   predictive_maintenance_dbt:
     +schema: cons
+
+# CONS.FCT_OEE constants (FR-PL-07, BRD assumption 3) -- same value applied
+# to every line, env-var overridable per run without a code change.
+vars:
+  oee_performance_pct: "{{ env_var('OEE_PERFORMANCE_PCT', '0.98') }}"
+  oee_quality_pct: "{{ env_var('OEE_QUALITY_PCT', '0.97') }}"

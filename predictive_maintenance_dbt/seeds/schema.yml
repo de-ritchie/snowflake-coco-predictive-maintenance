@@ -14,3 +14,17 @@ seeds:
       - name: sensor_type
         tests:
           - not_null
+
+  - name: cons__dim_product
+    description: >
+      Static product/variant reference data (Module 1 DIM_PRODUCT) -- 4 rows,
+      all product/variant combos, seeded rather than derived from RAW since
+      no RAW table carries product_name and SALES_ORDER only ever contains
+      2 of the 4 combos (secondary variants never generated).
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+      - name: variant
+        tests:
+          - not_null
