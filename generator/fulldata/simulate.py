@@ -27,8 +27,23 @@ from generator.fulldata.sim_calendar import (
     working_days_in_week,
 )
 
-LIVE_WINDOW_DAYS = 30
+LIVE_WINDOW_WORKING_DAYS = 2  # 48h demo window = 2 trailing *working* days of ticks
+                              # (not calendar days -- see SH-42 design doc S4:
+                              # historical_end_date is always a Sunday, so a
+                              # naive calendar-day subtraction can land the
+                              # window entirely on a weekend and produce zero
+                              # live ticks).
 TICK_HOURS = CADENCE_MINUTES / 60.0
+
+
+def _trailing_working_days(end_date: date, n: int) -> list[date]:
+    days: list[date] = []
+    d = end_date
+    while len(days) < n:
+        if sim_calendar.is_working_day(d):
+            days.append(d)
+        d -= timedelta(days=1)
+    return sorted(days)
 
 
 @dataclass
@@ -91,7 +106,7 @@ def run_simulation(
     total_weeks = historical_weeks + lookahead_weeks
 
     historical_end_date = week_start(base_monday, historical_weeks + 1) - timedelta(days=1)
-    live_start_date = historical_end_date - timedelta(days=LIVE_WINDOW_DAYS - 1)
+    live_start_date = _trailing_working_days(historical_end_date, LIVE_WINDOW_WORKING_DAYS)[0]
 
     order_series = orders.generate_order_series(rng, total_weeks, historical_weeks)
 
@@ -131,15 +146,12 @@ def run_simulation(
 
         if is_lookahead:
             # Crew-capacity bookkeeping only -- no sensor ticks (LLD SS9 step 3).
+            # This branch must NOT append to cmms_rows: no RAW.CMMS_LOG row should
+            # ever claim a PM "happened" in the look-ahead window, since no sensor
+            # ticks are simulated there either (T2 fix, SH-42).
             if weekday_pm_machine and tentative_pm_day:
                 state = states[weekday_pm_machine]
-                duration_hours = float(rng.uniform(1, 3))
-                start_ts = datetime.combine(tentative_pm_day, time.min)
-                end_ts = start_ts + timedelta(hours=duration_hours)
                 _restore_pm(rng, state)
-                cmms_rows.append(
-                    cmms.make_event(weekday_pm_machine, "PM", start_ts, end_ts, cmms.pick_pm_note(rng))
-                )
                 state.mode, state.t_fail_hours = _new_cycle(rng, MACHINES[weekday_pm_machine]["weibull_lambda_hours"])
                 state.t_hours = 0.0
                 state.last_service_date = tentative_pm_day
