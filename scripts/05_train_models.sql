@@ -29,13 +29,30 @@
 -- itself a directly-supported Model Registry built-in type, so logging is
 -- unaffected. Revisit the distributed path if/when EPIC-FULLDATA's full-scale
 -- dataset makes an in-memory pull impractical.
+--
+-- enable_explainability=True + 'shap' in PACKAGES (confirmed live, 2026-09-24):
+-- an earlier pass disabled explainability entirely after hitting
+-- "ModuleNotFoundError: No module named 'shap'" and assumed it was an
+-- environment limitation. It wasn't -- `shap` (up to 0.51.0) is available in
+-- Snowflake's Anaconda channel for this account
+-- (SELECT * FROM information_schema.packages WHERE package_name ILIKE 'shap'),
+-- it was simply missing from this procedure's own PACKAGES list. With it
+-- added, log_model succeeds and the resulting model version exposes a real
+-- !explain method returning per-feature SHAP values -- verified live via
+-- `SELECT ... FROM t, TABLE(MODEL(...)!explain(t.col1, t.col2, ...)) e`
+-- (a lateral join -- !explain must be called as a table function with
+-- individual scalar columns, not `MODEL(...)!explain` as a plain scalar UDF
+-- and not with a subquery/ROW(...) argument; both alternate call shapes
+-- were tried and rejected by Snowflake with different errors before finding
+-- this one). This unlocks S-PERSONA-1's future `explain_prediction` tool
+-- (EPIC-PERSONAS) without needing to revisit training at all.
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE snowcomotive.cons.sp_train_isolation_forest()
 RETURNS STRING
 LANGUAGE PYTHON
 RUNTIME_VERSION = '3.11'
-PACKAGES = ('snowflake-snowpark-python', 'snowflake-ml-python', 'pandas', 'scikit-learn')
+PACKAGES = ('snowflake-snowpark-python', 'snowflake-ml-python', 'pandas', 'scikit-learn', 'shap')
 HANDLER = 'train'
 AS
 $$
@@ -78,17 +95,11 @@ def train(session):
         # log_model failed with "Packages not found: snowflake-ml-python[version=...]"
         # (confirmed empirically, not a hypothetical fix).
         #
-        # enable_explainability=False: the default (True) tries to import
-        # `shap` to build a background-data explainer, which is not installed
-        # in this account's Python UDF sandbox and fails with
-        # "ModuleNotFoundError: No module named 'shap'" during log_model,
-        # after the model itself is already trained -- a real, reproduced
-        # packaging limitation, not a hypothetical fix. No feature in this
-        # story (or any built so far) calls EXPLAIN/`!explain` on this model,
-        # so disabling it costs nothing today; revisit if a future story
-        # needs SHAP-based explanations (e.g. S-PERSONA-1's `explain_prediction`
-        # tool) by adding `shap` to PACKAGES above first.
-        options={"enable_explainability": False, "embed_local_ml_library": True},
+        # enable_explainability=True: requires 'shap' in PACKAGES above (see
+        # header note) -- builds a SHAP background-data explainer from
+        # sample_input_data, exposing !explain alongside !predict/
+        # !decision_function/!score_samples on the logged model version.
+        options={"enable_explainability": True, "embed_local_ml_library": True},
     )
 
     # Registry does NOT auto-promote a newly logged version to default -- the
