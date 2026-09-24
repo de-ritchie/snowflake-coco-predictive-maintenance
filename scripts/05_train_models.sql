@@ -77,18 +77,7 @@ def train(session):
         # resolve a matching standalone package version for it -- without this,
         # log_model failed with "Packages not found: snowflake-ml-python[version=...]"
         # (confirmed empirically, not a hypothetical fix).
-        #
-        # enable_explainability=False: the default (True) tries to import
-        # `shap` to build a background-data explainer, which is not installed
-        # in this account's Python UDF sandbox and fails with
-        # "ModuleNotFoundError: No module named 'shap'" during log_model,
-        # after the model itself is already trained -- a real, reproduced
-        # packaging limitation, not a hypothetical fix. No feature in this
-        # story (or any built so far) calls EXPLAIN/`!explain` on this model,
-        # so disabling it costs nothing today; revisit if a future story
-        # needs SHAP-based explanations (e.g. S-PERSONA-1's `explain_prediction`
-        # tool) by adding `shap` to PACKAGES above first.
-        options={"enable_explainability": False, "embed_local_ml_library": True},
+        options={"enable_explainability": True, "embed_local_ml_library": True},
     )
 
     # Registry does NOT auto-promote a newly logged version to default -- the
