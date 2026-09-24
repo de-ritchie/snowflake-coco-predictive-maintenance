@@ -36,6 +36,13 @@ up:
      tags=['inference'] -- confirmed insertedRows:1/copiedRows:0 on a single
      new tick, true incremental refresh cascading through this layer too)
   9. dbt test
+  10. scripts/07_post_setup.sql (SH-30/27/28/31: semantic view + agent +
+      streamlit_stage), then PUT oee_command_center_app/*.py (recursively,
+      preserving pages/ subpath) to @snowcomotive.cons.streamlit_stage, then
+      CREATE OR REPLACE STREAMLIT snowcomotive.cons.oee_command_center --
+      SH-33's deviation from `snow streamlit deploy` (rejected CLI, see
+      AGENTS.md): native CREATE STREAMLIT DDL + connector-session PUT only,
+      same pattern as `demo inject-tick`'s own PUT+COPY INTO.
 
 down:
   1. scripts/09_teardown.sql -- drops database (cascades), role, warehouse
@@ -52,8 +59,6 @@ simpler than Module 10 §6's literal pseudocode (frozen design doc SH-34-36-41
   reset-cursor  -- clears the cursor, restarting the drip-feed from the first
                    tick for a repeat demo run.
 
-This only covers what's built so far -- later stories (semantic view, agents,
-Streamlit) extend `up`, not this file's shape.
 """
 
 import os
@@ -71,6 +76,7 @@ OUTPUT_DIR = REPO_ROOT / "output"
 LIVE_TICKS_DIR = OUTPUT_DIR / "live_ticks"
 CURSOR_FILE = LIVE_TICKS_DIR / ".cursor"
 DBT_DIR = REPO_ROOT / "predictive_maintenance_dbt"
+STREAMLIT_APP_DIR = REPO_ROOT / "oee_command_center_app"
 CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
 
 
@@ -159,6 +165,49 @@ def run_dbt_phase2_and_test() -> None:
     subprocess.run(["dbt", "test"], cwd=DBT_DIR, check=True)
 
 
+def _put_streamlit_app_files(cur) -> None:
+    # streamlit_app.py goes to the stage root; every pages/*.py goes to
+    # pages/ under the stage root, preserving the multipage subpath (SH-32).
+    # AUTO_COMPRESS=FALSE OVERWRITE=TRUE -- same flags `demo inject-tick`
+    # already uses for its own PUT, so re-running `up` re-syncs the app code.
+    main_file = STREAMLIT_APP_DIR / "streamlit_app.py"
+    cur.execute(
+        f"PUT 'file://{main_file}' @snowcomotive.cons.streamlit_stage/ "
+        "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+    )
+    for page_file in sorted((STREAMLIT_APP_DIR / "pages").glob("*.py")):
+        cur.execute(
+            f"PUT 'file://{page_file}' @snowcomotive.cons.streamlit_stage/pages/ "
+            "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+        )
+
+
+def run_post_setup() -> None:
+    # SH-30/27/28/31/33: semantic view + agent + Streamlit deploy. Own
+    # connector session, snowcomotive_role (owns every object this creates,
+    # same reasoning as the training-procedure step above).
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "07_post_setup.sql")
+        _put_streamlit_app_files(cur)
+        # CREATE STREAMLIT itself isn't in 07_post_setup.sql -- it needs the
+        # app files PUT to the stage first (created by that script), and PUT
+        # can't run from a plain .sql file. Same "inline SQL in manage.py"
+        # precedent as `demo inject-tick`'s own PUT+COPY INTO.
+        print("--- Creating Streamlit app (SH-33) ---")
+        cur.execute(
+            "CREATE OR REPLACE STREAMLIT snowcomotive.cons.oee_command_center "
+            "ROOT_LOCATION = '@snowcomotive.cons.streamlit_stage' "
+            "MAIN_FILE = 'streamlit_app.py' "
+            "QUERY_WAREHOUSE = snowcomotive_wh"
+        )
+        for row in cur.fetchall():
+            print(f"  {row}")
+    finally:
+        conn.close()
+
+
 def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
     # role='ACCOUNTADMIN' overrides the snow-coco connection's default login
     # role (SNOWCOMOTIVE_ROLE itself) -- required because 01_setup.sql creates
@@ -190,6 +239,7 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
     finally:
         conn.close()
     run_dbt_phase2_and_test()
+    run_post_setup()
     print("--- up complete ---")
 
 
