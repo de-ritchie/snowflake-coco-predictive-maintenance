@@ -10,15 +10,20 @@ filter (only 1 sensor-enabled machine exists today) -- both explicitly out
 of scope for this story.
 """
 
+import os
+
 import streamlit as st
 from streamlit.connections import SnowflakeConnection
 
-CONNECTION_NAME = "snow-coco"
+CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
 
 
 def get_connection() -> SnowflakeConnection:
     """This project's standard Snowflake connection convention (AGENTS.md):
-    the named `snow-coco` connection from ~/.snowflake/connections.toml.
+    the named `snow-coco` connection from ~/.snowflake/connections.toml,
+    overridable via the SNOWFLAKE_CONNECTION_NAME env var (same convention
+    as manage.py's CONNECTION_NAME) to target a different environment/account
+    without touching code.
 
     Note: `st.connection(CONNECTION_NAME, type="snowflake")` -- not
     `st.connection("snowflake", connection_name=CONNECTION_NAME)` as the
@@ -26,8 +31,34 @@ def get_connection() -> SnowflakeConnection:
     first positional arg as the connection name itself; passing "snowflake"
     there and connection_name as a kwarg raises "got multiple values for
     keyword argument 'connection_name'" (confirmed against streamlit==1.62).
+
+    database/schema/warehouse/role are set explicitly via `USE ...` statements
+    right after connecting (matching manage.py's connector-session defaults)
+    rather than relying on the named connection's TOML entry to define them --
+    a bare connections.toml entry (account/user/authenticator/password only,
+    no defaults) otherwise leaves the session with no current database, which
+    fails every query with "This session does not have a current database."
+
+    Deliberately NOT passed as kwargs to `st.connection()` itself: Streamlit's
+    SnowflakeConnection._connect() only auto-applies `connection_name` when no
+    other kwargs are given; the moment any extra kwarg (database/schema/...)
+    is passed, it falls through to a raw `snowflake.connector.connect(**kwargs)`
+    that drops the named-connection lookup entirely -- and re-adding
+    `connection_name` as an explicit kwarg collides with the positional arg
+    above ("got multiple values for keyword argument 'connection_name'", the
+    same conflict SH-21 already hit once with `type=`). Running `USE ...`
+    after connecting avoids both problems.
     """
-    return st.connection(CONNECTION_NAME, type="snowflake")
+    conn = st.connection(CONNECTION_NAME, type="snowflake")
+    cur = conn.cursor()
+    try:
+        cur.execute("USE ROLE SNOWCOMOTIVE_ROLE")
+        cur.execute("USE WAREHOUSE SNOWCOMOTIVE_WH")
+        cur.execute("USE DATABASE SNOWCOMOTIVE")
+        cur.execute("USE SCHEMA RAW")
+    finally:
+        cur.close()
+    return conn
 
 
 def render_sidebar() -> None:

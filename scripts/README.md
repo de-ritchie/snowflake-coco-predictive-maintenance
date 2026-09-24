@@ -10,7 +10,7 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired) | SH-15, SH-20, SH-24, SH-26, SH-29 |
 | 05 | `05_train_models.sql` | Model training | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
 | 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
-| 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | Not built | SH-30, SH-28, SH-31, SH-33 |
+| 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | **Built** (v1 — 8-entity semantic view w/ 1 verified query, Analyst-only `maintenance_supervisor_agent`, `streamlit_stage`; `CREATE STREAMLIT` itself + the app-file `PUT` live in `manage.py`'s `run_post_setup()`, not this file) | SH-30, SH-27, SH-28, SH-31, SH-33 |
 | 08 | `manage.py demo inject-tick` / `reset-cursor` | Live tick injection (demo-only manual trigger) | **Built** — Python-only, direct synchronous PUT+COPY INTO per invocation; `08_demo.sql` kept only as a historical stub (never executed — see its header) | SH-41 (S-DATA-9) |
 | 09 | `09_teardown.sql` | Full teardown (P3, deliberately last) | Not built | SH-68, SH-61 |
 
@@ -31,7 +31,11 @@ model, SH-22) → `dbt run --select tag:inference+` (`cons__fct_anomaly_result`,
 tag `inference` — real inference work now, SH-23, confirmed incrementally
 refreshing) → `dbt test` inside `predictive_maintenance_dbt/`
 (its own committed `profiles.yml`, same `snow-coco` account, dbt manages its own
-connection separately from the connector sessions above). `down` runs
+connection separately from the connector sessions above) → `run_post_setup()`
+(own `snowcomotive_role` connector session: `07_post_setup.sql` — semantic
+view + agent + `streamlit_stage` — then `PUT`s `oee_command_center_app/`'s
+files to that stage and issues `CREATE OR REPLACE STREAMLIT` directly, SH-30/
+27/28/31/33). `down` runs
 `09_teardown.sql` as ACCOUNTADMIN (it drops `snowcomotive_role` itself).
 
 **The `snow` CLI is not used in this project.** It was tried and dropped: the
