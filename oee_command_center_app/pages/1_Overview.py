@@ -137,6 +137,71 @@ def load_sensor_history(equipment_id: str) -> pd.DataFrame:
     return df.sort_values("READING_TS")
 
 
+@st.cache_data(ttl=300)
+def load_priority_signals() -> pd.DataFrame:
+    """T5 (SH-42): descriptive order-vs-anomaly-vs-spare-readiness context,
+    NOT a computed priority score -- surfaces all of a machine's tracked
+    spare parts' aggregate readiness (MIN(lead_time_days), SUM(units_on_hand)),
+    never a specific part tied to a predicted failure mode (no failure-mode
+    -> spare-part mapping exists in CONS). Mirrors the semantic view's
+    order_driven_priority_signals verified query (scripts/07_post_setup.sql).
+    """
+    conn = get_connection()
+    return conn.query(
+        """
+        WITH weekly_order AS (
+            SELECT
+                p.product_id, p.variant,
+                o.order_week,
+                o.order_units,
+                AVG(o.order_units) OVER (
+                    PARTITION BY o.product_id, o.variant
+                    ORDER BY o.order_week
+                    ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+                ) AS trailing_4wk_avg_order_units
+            FROM cons.cons__fct_order o
+            JOIN cons.cons__dim_product p
+                ON p.product_id = o.product_id AND p.variant = o.variant
+        ),
+        weekly_anomaly AS (
+            SELECT
+                equipment_id,
+                DATE_TRUNC('week', reading_ts) AS period_week,
+                AVG(anomaly_score) AS avg_anomaly_score,
+                SUM(IFF(is_anomaly, 1, 0)) AS anomaly_count
+            FROM cons.cons__fct_anomaly_result
+            GROUP BY equipment_id, DATE_TRUNC('week', reading_ts)
+        ),
+        spare_readiness AS (
+            SELECT equipment_id, period_week, MIN(lead_time_days) AS min_lead_time_days, SUM(units_on_hand) AS total_units_on_hand
+            FROM cons.cons__fct_inventory_spare
+            GROUP BY equipment_id, period_week
+        )
+        SELECT
+            m.line_name,
+            m.equipment_id,
+            m.equipment_name,
+            wo.order_week,
+            wo.order_units,
+            wo.trailing_4wk_avg_order_units,
+            wa.avg_anomaly_score,
+            wa.anomaly_count,
+            sr.min_lead_time_days,
+            sr.total_units_on_hand
+        FROM cons.cons__dim_equipment m
+        JOIN weekly_order wo
+            ON wo.product_id = m.product_id AND wo.variant = m.variant
+        LEFT JOIN weekly_anomaly wa
+            ON wa.equipment_id = m.equipment_id AND wa.period_week = wo.order_week
+        LEFT JOIN spare_readiness sr
+            ON sr.equipment_id = m.equipment_id AND sr.period_week = wo.order_week
+        WHERE m.is_sensor_enabled
+        ORDER BY m.line_name, wo.order_week DESC
+        """,
+        ttl=300,
+    )
+
+
 render_sidebar()
 st.title("Overview")
 
@@ -207,3 +272,29 @@ for _, eq in equipment_df.iterrows():
                         f"at {latest_tick['READING_TS']} "
                         "(isolated from trend by a data-gen gap)"
                     )
+
+st.subheader("Order-driven priority signals")
+st.caption(
+    "Descriptive context only, not a computed priority score: recent order "
+    "volume vs. each line's equipment anomaly trend and aggregate spare-part "
+    "readiness across all tracked parts (no failure-mode-to-part mapping "
+    "exists yet, so no specific part is singled out)."
+)
+signals_df = load_priority_signals()
+if signals_df.empty:
+    st.write("No order/anomaly/inventory data available.")
+else:
+    for line_name, line_df in signals_df.groupby("LINE_NAME"):
+        latest = line_df.sort_values("ORDER_WEEK").iloc[-1]
+        avg_anomaly_score = latest["AVG_ANOMALY_SCORE"]
+        anomaly_count = latest["ANOMALY_COUNT"]
+        min_lead_time_days = latest["MIN_LEAD_TIME_DAYS"]
+        parts = []
+        parts.append(f"order volume trailing-4wk avg **{latest['TRAILING_4WK_AVG_ORDER_UNITS']:.0f}** units/wk")
+        if pd.notna(avg_anomaly_score):
+            parts.append(f"avg anomaly score **{avg_anomaly_score:.3f}** ({int(anomaly_count)} anomalous readings)")
+        else:
+            parts.append("no anomaly data for the latest order week")
+        if pd.notna(min_lead_time_days):
+            parts.append(f"spare-part lead time as low as **{min_lead_time_days:.0f} days**")
+        st.markdown(f"**{line_name}**: " + ", ".join(parts) + ".")

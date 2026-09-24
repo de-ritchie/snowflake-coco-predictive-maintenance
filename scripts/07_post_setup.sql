@@ -144,6 +144,57 @@ QUALIFY ROW_NUMBER() OVER (
     PARTITION BY a.equipment_id ORDER BY a.reading_ts DESC
 ) = 1
 ORDER BY a.equipment_id'
+    ),
+    order_driven_priority_signals AS (
+      QUESTION 'How does recent order volume for each line compare to that line''s equipment anomaly trend and spare-part readiness?'
+      SQL 'WITH weekly_order AS (
+    SELECT
+        p.product_id, p.variant,
+        o.order_week,
+        o.order_units,
+        AVG(o.order_units) OVER (
+            PARTITION BY o.product_id, o.variant
+            ORDER BY o.order_week
+            ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+        ) AS trailing_4wk_avg_order_units
+    FROM snowcomotive.cons.cons__fct_order o
+    JOIN snowcomotive.cons.cons__dim_product p
+        ON p.product_id = o.product_id AND p.variant = o.variant
+),
+weekly_anomaly AS (
+    SELECT
+        equipment_id,
+        DATE_TRUNC(''week'', reading_ts) AS period_week,
+        AVG(anomaly_score) AS avg_anomaly_score,
+        SUM(IFF(is_anomaly, 1, 0)) AS anomaly_count
+    FROM snowcomotive.cons.cons__fct_anomaly_result
+    GROUP BY equipment_id, DATE_TRUNC(''week'', reading_ts)
+),
+spare_readiness AS (
+    SELECT equipment_id, period_week, MIN(lead_time_days) AS min_lead_time_days, SUM(units_on_hand) AS total_units_on_hand
+    FROM snowcomotive.cons.cons__fct_inventory_spare
+    GROUP BY equipment_id, period_week
+)
+SELECT
+    m.line_name,
+    m.equipment_id,
+    m.equipment_name,
+    wo.order_week,
+    wo.order_units,
+    wo.trailing_4wk_avg_order_units,
+    wa.avg_anomaly_score,
+    wa.anomaly_count,
+    sr.min_lead_time_days,
+    sr.total_units_on_hand
+FROM snowcomotive.cons.cons__dim_equipment m
+JOIN weekly_order wo
+    ON wo.product_id = m.product_id AND wo.variant = m.variant
+LEFT JOIN weekly_anomaly wa
+    ON wa.equipment_id = m.equipment_id AND wa.period_week = wo.order_week
+LEFT JOIN spare_readiness sr
+    ON sr.equipment_id = m.equipment_id AND sr.period_week = wo.order_week
+WHERE m.is_sensor_enabled
+ORDER BY m.line_name, wo.order_week DESC'
     )
   );
 

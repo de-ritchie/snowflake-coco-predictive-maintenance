@@ -56,6 +56,13 @@ simpler than Module 10 §6's literal pseudocode (frozen design doc SH-34-36-41
                    into RAW.SENSOR_READING, then advances the cursor (only
                    after COPY INTO confirms success -- safe to re-run after a
                    partial failure).
+  inject-batch  -- injects every tick file sharing the next not-yet-loaded
+                   file's calendar date (one PUT + one COPY INTO for the
+                   whole date-chunk), advancing the cursor to the chunk's
+                   last file only after COPY INTO confirms LOADED for every
+                   file (SH-42, T4). With LIVE_WINDOW_WORKING_DAYS=2
+                   (simulate.py, T3) there are always exactly 2 such
+                   date-chunks, so 2 calls drain the whole live window.
   reset-cursor  -- clears the cursor, restarting the drip-feed from the first
                    tick for a repeat demo run.
 
@@ -324,6 +331,67 @@ def inject_next_tick() -> None:
     print(f"Injected {next_file.name}. {remaining_after} tick(s) remaining.")
 
 
+def _batch_date(filename: str) -> str:
+    """'reading_2026-09-10T14-30-00.parquet' -> '2026-09-10'."""
+    return filename[len("reading_") : len("reading_") + 10]
+
+
+def inject_next_batch() -> None:
+    files = _live_tick_files()
+    if not files:
+        print(f"No live tick files found in {LIVE_TICKS_DIR}. Run `manage.py up` first.")
+        raise typer.Exit(code=1)
+
+    names = [f.name for f in files]
+    cursor = _read_cursor()
+    if cursor is None or cursor not in names:
+        if cursor is not None:
+            print(f"Cursor references unknown tick '{cursor}' -- restarting from the first file.")
+        next_idx = 0
+    else:
+        next_idx = names.index(cursor) + 1
+
+    if next_idx >= len(files):
+        print("All batches already injected. Run `manage.py demo reset-cursor` to restart.")
+        raise typer.Exit(code=0)
+
+    chunk_date = _batch_date(names[next_idx])
+    chunk_files = [f for f in files[next_idx:] if _batch_date(f.name) == chunk_date]
+    remaining_after = len(files) - next_idx - len(chunk_files)
+
+    print(f"--- Injecting batch {chunk_date} ({len(chunk_files)} tick file(s)) ---")
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"PUT 'file://{LIVE_TICKS_DIR}/reading_{chunk_date}*.parquet' "
+            "@snowcomotive.raw.landing_stage/sensor_reading/ AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+        )
+        file_list = ", ".join(f"'{f.name}'" for f in chunk_files)
+        cur.execute(
+            "COPY INTO snowcomotive.raw.sensor_reading "
+            "FROM @snowcomotive.raw.landing_stage/sensor_reading/ "
+            f"FILES = ({file_list}) "
+            "FILE_FORMAT = (TYPE = PARQUET) MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE "
+            "ON_ERROR = 'ABORT_STATEMENT'"
+        )
+        rows = cur.fetchall()
+        columns = [c[0] for c in cur.description]
+    finally:
+        conn.close()
+
+    # Cursor update only after COPY INTO confirms success (design doc
+    # invariant 4) -- same pattern as inject_next_tick(), extended from 1
+    # file to the whole date-chunk.
+    status_idx = columns.index("status") if "status" in columns else None
+    if status_idx is not None and rows and not all(r[status_idx] == "LOADED" for r in rows):
+        print(f"COPY INTO did not report LOADED for all files: {rows}")
+        raise typer.Exit(code=1)
+
+    _write_cursor(chunk_files[-1].name)
+    print(f"Injected batch {chunk_date} ({len(chunk_files)} file(s)). {remaining_after} tick(s) remaining.")
+
+
 def reset_cursor() -> None:
     if CURSOR_FILE.exists():
         CURSOR_FILE.unlink()
@@ -363,6 +431,12 @@ def down() -> None:
 def demo_inject_tick() -> None:
     """Inject the next output/live_ticks/ file into RAW.SENSOR_READING."""
     inject_next_tick()
+
+
+@demo_app.command("inject-batch")
+def demo_inject_batch() -> None:
+    """Inject every output/live_ticks/ file in the next ~24h date-chunk into RAW.SENSOR_READING, in one session."""
+    inject_next_batch()
 
 
 @demo_app.command("reset-cursor")
