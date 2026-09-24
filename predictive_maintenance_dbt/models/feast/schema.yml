@@ -47,3 +47,46 @@ models:
       - name: reading_ts
         tests:
           - not_null
+
+  - name: feast__spine_maintenance_cycle
+    description: >
+      One row per maintenance cycle per machine (S-RUL-1) -- cycle boundaries
+      are every cons.fct_maintenance_event row (PM or BREAKDOWN both reset
+      the wear clock) plus one still-open final cycle per machine.
+      Right-censored survival labels: y_upper = y_lower for BREAKDOWN-ended
+      cycles (observed failure), NULL for PM-ended/open cycles (censored).
+      y_lower/y_upper are operating hours reconstructed via tick-count against
+      feast.fct_sensor_features_train, not calendar DATEDIFF.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: cycle_end_ts
+        tests:
+          - not_null
+      - name: y_lower
+        tests:
+          - not_null
+
+  - name: feast__training_dataset_rul
+    description: >
+      RUL training set (S-RUL-1) -- feast__spine_maintenance_cycle ASOF-joined
+      against feast__fct_sensor_features_train for point-in-time-correct
+      feature attachment as of cycle_end_ts, plus a time-based dataset_split
+      column (FR-FS-03) anchored to MAX(cycle_end_ts) in the data.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+      - name: cycle_end_ts
+        tests:
+          - not_null
+      - name: y_lower
+        tests:
+          - not_null
+      - name: dataset_split
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["train", "test"]
