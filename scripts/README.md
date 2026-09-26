@@ -7,7 +7,7 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | 01 | `01_setup.sql` | Env spin-up (role/warehouse/db/schemas/stage) | **Built** (v0 scope: S-ENV-1/S-ENV-2) | SH-10, SH-14 (Done) |
 | 02 | `02_setup_raw_ddl.sql` | RAW table DDL (RAW.EQUIPMENT/SENSOR_READING/CMMS_LOG + SALES_ORDER/INVENTORY_FG_SNAPSHOT/SPARE_PART_SNAPSHOT/CALENDAR) | **Built** (v2 — EPIC-FULLDATA tables added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
 | 03 | `03_setup_raw_load.sql` | Upload + load full generator output into all 7 RAW tables (RAW.CALENDAR full-replace) | **Built** (v2 — EPIC-FULLDATA tables + CMMS_LOG loading added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
-| 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired) | SH-15, SH-20, SH-24, SH-26, SH-29 |
+| 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired; SH-50 further splits out `feast__training_dataset_rul` to build after model training, see below) | SH-15, SH-20, SH-24, SH-26, SH-29, SH-50 |
 | 05 | `05_train_models.sql` | Model training | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
 | 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
 | 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | **Built** (v1 — 8-entity semantic view w/ 1 verified query, Analyst-only `maintenance_supervisor_agent`, `streamlit_stage`; `CREATE STREAMLIT` itself + the app-file `PUT` live in `manage.py`'s `run_post_setup()`, not this file) | SH-30, SH-27, SH-28, SH-31, SH-33 |
@@ -25,9 +25,12 @@ all 7 RAW-bound `output/*.parquet` files plus the trailing-30-day `output/live_t
 files used by `manage.py demo inject-tick`) → `02_setup_raw_ddl.sql` →
 `03_setup_raw_load.sql`, all through one `snow-coco` connector session (OAuth, token
 cached via `keyring` — see `AGENTS.md` "Local dev environment"), then shells out to
-`dbt seed` → `dbt run --exclude tag:inference+` → `05_train_models.sql` (own
-`snowcomotive_role` connector session, trains and registers the IsolationForest
-model, SH-22) → `dbt run --select tag:inference+` (`cons__fct_anomaly_result`,
+`dbt seed` → `dbt run --exclude tag:inference+ --exclude feast__training_dataset_rul`
+→ `05_train_models.sql` (own `snowcomotive_role` connector session, trains and
+registers the IsolationForest model, SH-22) → `dbt run --select
+feast__training_dataset_rul` (SH-50 — this model calls `MODEL(isolation_forest_model)`
+directly, so it must build after training rather than in the phase-1 pass above) →
+`dbt run --select tag:inference+` (`cons__fct_anomaly_result`,
 tag `inference` — real inference work now, SH-23, confirmed incrementally
 refreshing) → `dbt test` inside `predictive_maintenance_dbt/`
 (its own committed `profiles.yml`, same `snow-coco` account, dbt manages its own

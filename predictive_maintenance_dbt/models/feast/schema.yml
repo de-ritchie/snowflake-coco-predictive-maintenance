@@ -70,10 +70,14 @@ models:
 
   - name: feast__training_dataset_rul
     description: >
-      RUL training set (S-RUL-1) -- feast__spine_maintenance_cycle ASOF-joined
-      against feast__fct_sensor_features_train for point-in-time-correct
-      feature attachment as of cycle_end_ts, plus a time-based dataset_split
-      column (FR-FS-03) anchored to MAX(cycle_end_ts) in the data.
+      RUL training set (S-RUL-1/S-RUL-2) -- feast__spine_maintenance_cycle
+      ASOF-joined against feast__fct_sensor_features_train for point-in-time-
+      correct feature attachment as of cycle_end_ts, plus a time-based
+      dataset_split column (FR-FS-03) anchored to MAX(cycle_end_ts) in the
+      data. Also carries the isolation_forest_model's anomaly signal
+      (single-tick is_anomaly/anomaly_score, plus backward-only 72h window
+      aggregates), computed directly against this table's own frozen feature
+      snapshot -- not read from cons.fct_anomaly_result (SH-50).
     columns:
       - name: equipment_id
         tests:
@@ -90,3 +94,15 @@ models:
           - accepted_values:
               arguments:
                 values: ["train", "test"]
+      - name: is_anomaly
+        tests:
+          - not_null
+      - name: anomaly_score
+        tests:
+          - not_null
+      - name: any_anomaly_flagged_72h
+        description: NULL only for the extreme cold-start case (zero ticks in the 72h window).
+      - name: min_anomaly_score_72h
+        description: NULL only for the extreme cold-start case (zero ticks in the 72h window).
+      - name: pct_anomalous_ticks_72h
+        description: NULL only for the extreme cold-start case (zero ticks in the 72h window); otherwise within [0, 1].
