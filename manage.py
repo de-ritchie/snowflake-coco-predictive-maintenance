@@ -25,13 +25,19 @@ up:
   5. scripts/03_setup_raw_load.sql  -- PUT + COPY INTO the generated Parquet
      (RAW.CALENDAR full-replace via TRUNCATE + FORCE=TRUE; every other table
      relies on COPY INTO's native load-history dedup)
-  6. dbt seed, then dbt run --exclude tag:inference+ (predictive_maintenance_dbt/)
-     -- Raw -> Standardized -> Consumption -> FEAST (SH-15/SH-20/SH-24/SH-26, SH-29).
-     Seed must run before run now: the FEAST macro's baseline join references
-     the seed via ref(), so a from-scratch env fails if run comes first.
+  6. dbt seed, then dbt run --exclude tag:inference+ --exclude
+     feast__training_dataset_rul (predictive_maintenance_dbt/) -- Raw ->
+     Standardized -> Consumption -> FEAST (SH-15/SH-20/SH-24/SH-26, SH-29),
+     minus feast__training_dataset_rul (SH-50 -- that model calls
+     MODEL(isolation_forest_model) directly, so it must build after step 7,
+     not here). Seed must run before run now: the FEAST macro's baseline join
+     references the seed via ref(), so a from-scratch env fails if run comes
+     first.
   7. scripts/05_train_models.sql -- CREATE OR REPLACE PROCEDURE + CALL
      sp_train_isolation_forest() (SH-22/S-MODEL-2), between the two dbt
      phases per FR-OPS-02a (inference tables reference the model by name).
+  7a. dbt run --select feast__training_dataset_rul (SH-50) -- now safe to
+      build; isolation_forest_model exists as of step 7.
   8. dbt run --select tag:inference+ (S-MODEL-3: cons__fct_anomaly_result,
      tags=['inference'] -- confirmed insertedRows:1/copiedRows:0 on a single
      new tick, true incremental refresh cascading through this layer too)
@@ -156,10 +162,30 @@ def run_dbt_phase1() -> None:
     # bare `python manage.py up`.
     print("--- Running dbt seed ---")
     subprocess.run(["dbt", "seed"], cwd=DBT_DIR, check=True)
-    # Phase 1: everything except model-inference tables (FR-OPS-02). Seed
+    # Phase 1: everything except model-inference tables (FR-OPS-02) AND minus
+    # feast__training_dataset_rul (SH-50) -- that model's own dbt run moves to
+    # after 05_train_models.sql below, since it calls MODEL(isolation_forest_
+    # model, ...) directly and that model doesn't exist yet at this point in
+    # the sequence (docs/designs/SH-50-anomaly-into-rul-features.md §4). Seed
     # must come first -- FEAST's baseline join ref()'s the seed (SH-29).
-    print("--- Running dbt run --exclude tag:inference+ (phase 1: features) ---")
-    subprocess.run(["dbt", "run", "--exclude", "tag:inference+"], cwd=DBT_DIR, check=True)
+    print(
+        "--- Running dbt run --exclude tag:inference+ --exclude feast__training_dataset_rul "
+        "(phase 1: features) ---"
+    )
+    subprocess.run(
+        ["dbt", "run", "--exclude", "tag:inference+", "--exclude", "feast__training_dataset_rul"],
+        cwd=DBT_DIR,
+        check=True,
+    )
+
+
+def run_dbt_training_dataset_rul() -> None:
+    # SH-50: built here, after 05_train_models.sql, because this model calls
+    # MODEL(cons.isolation_forest_model, DEFAULT) directly -- the model must
+    # already exist (dbt's own DAG can't enforce this since it's not a
+    # dbt-managed ref()).
+    print("--- Running dbt run --select feast__training_dataset_rul (post-training) ---")
+    subprocess.run(["dbt", "run", "--select", "feast__training_dataset_rul"], cwd=DBT_DIR, check=True)
 
 
 def run_dbt_phase2_and_test() -> None:
@@ -245,6 +271,7 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
         run_sql_file(cur, SCRIPTS_DIR / "05_train_models.sql")
     finally:
         conn.close()
+    run_dbt_training_dataset_rul()
     run_dbt_phase2_and_test()
     run_post_setup()
     print("--- up complete ---")
