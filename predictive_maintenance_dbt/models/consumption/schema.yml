@@ -46,6 +46,28 @@ models:
         tests:
           - not_null
 
+  - name: cons__fct_rul_prediction
+    description: >
+      RUL (remaining-useful-life) inference (S-RUL-5, FR-FS-00b) -- live
+      counterpart to cons__fct_anomaly_result, calling rul_aft_model!predict()
+      against feast__fct_sensor_features_inference joined with
+      cons__fct_anomaly_result's own persisted is_anomaly/anomaly_score plus a
+      72h-windowed aggregate of that same persisted history.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: reading_ts
+        tests:
+          - not_null
+      - name: predicted_rul_hours
+        tests:
+          - not_null
+
   - name: cons__fct_order
     description: "Lean pass-through of STD.SALES_ORDER -- no aggregation."
     columns:
