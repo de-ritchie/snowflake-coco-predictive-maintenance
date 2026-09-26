@@ -8,13 +8,14 @@ Lifecycle scripts for the SnowComotive project, per FR-OPS-01 through 06 / LLD M
 | 02 | `02_setup_raw_ddl.sql` | RAW table DDL (RAW.EQUIPMENT/SENSOR_READING/CMMS_LOG + SALES_ORDER/INVENTORY_FG_SNAPSHOT/SPARE_PART_SNAPSHOT/CALENDAR) | **Built** (v2 — EPIC-FULLDATA tables added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
 | 03 | `03_setup_raw_load.sql` | Upload + load full generator output into all 7 RAW tables (RAW.CALENDAR full-replace) | **Built** (v2 — EPIC-FULLDATA tables + CMMS_LOG loading added) | SH-11 (S-DATA-2), SH-34 (S-OPS-SETUP-2), SH-36 (S-DATA-8) |
 | 04 | `04_pipeline_run_phase1.sql` | dbt run — features (Raw→Std→Cons→FEAST) | Built (v2 — FEAST added, tag:inference+ phase split wired; SH-50 further splits out `feast__training_dataset_rul` to build after model training, see below) | SH-15, SH-20, SH-24, SH-26, SH-29, SH-50 |
-| 05 | `05_train_models.sql` | Model training | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
-| 06 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
-| 07 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | **Built** (v1 — 8-entity semantic view w/ 1 verified query, Analyst-only `maintenance_supervisor_agent`, `streamlit_stage`; `CREATE STREAMLIT` itself + the app-file `PUT` live in `manage.py`'s `run_post_setup()`, not this file) | SH-30, SH-27, SH-28, SH-31, SH-33 |
-| 08 | `manage.py demo inject-tick` / `reset-cursor` | Live tick injection (demo-only manual trigger) | **Built** — Python-only, direct synchronous PUT+COPY INTO per invocation; `08_demo.sql` kept only as a historical stub (never executed — see its header) | SH-41 (S-DATA-9) |
-| 09 | `09_teardown.sql` | Full teardown (P3, deliberately last) | Not built | SH-68, SH-61 |
+| 05 | `05_train_models.sql` | Model training (IsolationForest) | Built (v1 — IsolationForest, via CREATE PROCEDURE + CALL) | SH-22 (IsolationForest), SH-44 (RUL, P1) |
+| 06 | `06_train_rul_model.sql` | Model training (RUL AFT) | **Built** (v1 — raw `xgboost.Booster`, `survival:aft`, via CREATE PROCEDURE + CALL; runs after `feast__training_dataset_rul` is built) | SH-44 (S-RUL-3) |
+| 07 | `06_pipeline_run_phase2.sql` | dbt run — inference & downstream (`cons__fct_anomaly_result`, tag:inference) | **Built** | SH-23 |
+| 08 | `07_post_setup.sql` | Semantic view + agent(s) + Streamlit deploy | **Built** (v1 — 8-entity semantic view w/ 1 verified query, Analyst-only `maintenance_supervisor_agent`, `streamlit_stage`; `CREATE STREAMLIT` itself + the app-file `PUT` live in `manage.py`'s `run_post_setup()`, not this file) | SH-30, SH-27, SH-28, SH-31, SH-33 |
+| 09 | `manage.py demo inject-tick` / `reset-cursor` | Live tick injection (demo-only manual trigger) | **Built** — Python-only, direct synchronous PUT+COPY INTO per invocation; `08_demo.sql` kept only as a historical stub (never executed — see its header) | SH-41 (S-DATA-9) |
+| 10 | `09_teardown.sql` | Full teardown (P3, deliberately last) | Not built | SH-68, SH-61 |
 
-Run order: 01 → 02 → 03 → 04 → 05 → 06 → 07, then `manage.py demo inject-tick` on demand during a demo, 09 only when actually tearing down an environment.
+Run order: 01 → 02 → 03 → 04 → 05 → (dbt `feast__training_dataset_rul`) → 06 → (dbt phase2) → 07, then `manage.py demo inject-tick` on demand during a demo, 09 only when actually tearing down an environment. See `manage.py`'s own module docstring for the exact interleaved dbt/script sequence (`06_train_rul_model.sql` reads `feast.training_dataset_rul`, which itself depends on `isolation_forest_model` existing — so it must run strictly after that table's dbt build and strictly before the phase-2 `tag:inference+` dbt run).
 
 **Primary invocation: `manage.py up` / `manage.py down`** (repo root, `typer` CLI). `up`
 runs `01_setup.sql` as ACCOUNTADMIN (the role it creates doesn't exist yet to log in

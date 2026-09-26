@@ -38,6 +38,11 @@ up:
      phases per FR-OPS-02a (inference tables reference the model by name).
   7a. dbt run --select feast__training_dataset_rul (SH-50) -- now safe to
       build; isolation_forest_model exists as of step 7.
+  7b. scripts/06_train_rul_model.sql (SH-44/S-RUL-3) -- CREATE OR REPLACE
+      PROCEDURE + CALL sp_train_rul_aft_model(), trains/promotes
+      rul_aft_model on feast.training_dataset_rul (built as of step 7a).
+      Must run strictly after 7a and strictly before step 8
+      (docs/designs/SH-44-train-rul-aft-model.md §2).
   8. dbt run --select tag:inference+ (S-MODEL-3: cons__fct_anomaly_result,
      tags=['inference'] -- confirmed insertedRows:1/copiedRows:0 on a single
      new tick, true incremental refresh cascading through this layer too)
@@ -272,6 +277,15 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
     finally:
         conn.close()
     run_dbt_training_dataset_rul()
+    # RUL model training (SH-44/S-RUL-3) -- own connector session, same
+    # reasoning as the isolation-forest training step above; must run after
+    # feast.training_dataset_rul is built (previous step) and before phase 2.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "06_train_rul_model.sql")
+    finally:
+        conn.close()
     run_dbt_phase2_and_test()
     run_post_setup()
     print("--- up complete ---")
