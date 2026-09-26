@@ -109,6 +109,29 @@ models:
         tests:
           - not_null
 
+  - name: cons__fct_priority_score
+    description: >
+      Priority-score inference (S-RUL-6, FR-FS-08) -- 1 row / equipment,
+      always latest (deliberate deviation from the per-tick grain originally
+      specified in docs/04-1-LLD.md, see docs/designs/SH-47-priority-score.md
+      §4). Every input CTE is filtered to latest-per-key before joining, so
+      the join itself always runs against a handful of rows.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: score_ts
+        tests:
+          - not_null
+      - name: priority_score
+        tests:
+          - not_null
+
   - name: cons__fct_maintenance_event
     description: "Lean pass-through of STD.CMMS_LOG -- 1 row / event, both PM and BREAKDOWN included."
     columns:
