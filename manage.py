@@ -36,6 +36,18 @@ up:
   7. scripts/05_train_models.sql -- CREATE OR REPLACE PROCEDURE + CALL
      sp_train_isolation_forest() (SH-22/S-MODEL-2), between the two dbt
      phases per FR-OPS-02a (inference tables reference the model by name).
+  7-iso. scripts/06c_evaluate_iso_model.sql (SH-46/S-RUL-4, IsolationForest
+      scope extension) -- CREATE OR REPLACE PROCEDURE + CALL
+      sp_evaluate_isolation_forest_model(): re-scores feast.training_dataset_
+      iso WHERE dataset_split='test' directly via mv.run(...) (no read of
+      cons.fct_anomaly_result, which doesn't exist yet at this point), joins
+      against RAW.CMMS_LOG breakdown history for per-cycle catch rate/lead
+      time (excluding cycles that straddle the train/test boundary) and 72h-
+      window precision/recall/FPR, logging all 5 as Model Registry metrics on
+      isolation_forest_model's default version. Deliberately placed here --
+      earlier than the RUL evaluation step below -- since it has no
+      dependency on feast.training_dataset_rul, rul_aft_model, or the
+      phase-2 dbt run (docs/designs/SH-46-rul-model-evaluation.md §17).
   7a. dbt run --select feast__training_dataset_rul (SH-50) -- now safe to
       build; isolation_forest_model exists as of step 7.
   7b. scripts/06_train_rul_model.sql (SH-44/S-RUL-3) -- CREATE OR REPLACE
@@ -43,6 +55,14 @@ up:
       rul_aft_model on feast.training_dataset_rul (built as of step 7a).
       Must run strictly after 7a and strictly before step 8
       (docs/designs/SH-44-train-rul-aft-model.md §2).
+  7c. scripts/06b_evaluate_rul_model.sql (SH-46/S-RUL-4) -- CREATE OR REPLACE
+      PROCEDURE + CALL sp_evaluate_rul_aft_model(): evaluates rul_aft_model
+      against feast.training_dataset_rul WHERE dataset_split='test' (19
+      rows), computing concordance index (full test set) and MAE/RMSE/
+      median-AE (5 uncensored rows only), logging them as Model Registry
+      metrics on the model's default version. Read-only -- does not retrain
+      or mutate the model. Must run strictly after 7b (needs rul_aft_model to
+      exist) and strictly before step 8 (docs/designs/SH-46-rul-model-evaluation.md §2).
   8. dbt run --select tag:inference+ (S-MODEL-3: cons__fct_anomaly_result,
      tags=['inference'] -- confirmed insertedRows:1/copiedRows:0 on a single
      new tick, true incremental refresh cascading through this layer too)
@@ -276,6 +296,18 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
         run_sql_file(cur, SCRIPTS_DIR / "05_train_models.sql")
     finally:
         conn.close()
+    # IsolationForest model evaluation (SH-46/S-RUL-4, scope extension) --
+    # own connector session, same reasoning as the training step above; runs
+    # immediately after isolation_forest_model exists and before
+    # feast.training_dataset_rul is built -- has no dependency on either
+    # (docs/designs/SH-46-rul-model-evaluation.md §17). Read-only against the
+    # test split and RAW.CMMS_LOG -- does not retrain or mutate the model.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "06c_evaluate_iso_model.sql")
+    finally:
+        conn.close()
     run_dbt_training_dataset_rul()
     # RUL model training (SH-44/S-RUL-3) -- own connector session, same
     # reasoning as the isolation-forest training step above; must run after
@@ -286,9 +318,27 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
         run_sql_file(cur, SCRIPTS_DIR / "06_train_rul_model.sql")
     finally:
         conn.close()
+    # RUL model evaluation (SH-46/S-RUL-4) -- own connector session, same
+    # reasoning as the training step above; must run after rul_aft_model
+    # exists (previous step) and before phase 2. Read-only against the test
+    # split and the Registry -- does not retrain or mutate the model.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "06b_evaluate_rul_model.sql")
+    finally:
+        conn.close()
     run_dbt_phase2_and_test()
     run_post_setup()
     print("--- up complete ---")
+    print(
+        "\nReminder: for ad hoc queries outside manage.py (Snowsight, debugging "
+        "scripts, etc.), use a connection profile with role='snowcomotive_role' "
+        "pinned -- do NOT rely on this account's default role for ad hoc access "
+        "to snowcomotive-owned objects. See scripts/README.md 'Local/ad hoc "
+        "connections' for the exact connections.toml snippet and why a single "
+        "pinned profile can't also be used for manage.py up/down."
+    )
 
 
 def run_down() -> None:
