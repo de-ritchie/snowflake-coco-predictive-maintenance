@@ -118,6 +118,11 @@ from datetime import date
 import numpy as np
 import snowflake.connector
 import typer
+from dotenv import load_dotenv
+
+load_dotenv()  # picks up a repo-root .env if present (e.g. JIRA_API_TOKEN,
+# SH-53) -- .env is gitignored, never committed; explicit shell env vars
+# still take precedence since load_dotenv() defaults to override=False.
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
