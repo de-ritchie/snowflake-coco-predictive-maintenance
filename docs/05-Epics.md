@@ -214,7 +214,7 @@ Updates the setup script (adds Jira SM provisioning) and post-setup script (adds
 
 | Story | Task/Sub-tasks |
 |---|---|
-| **S-JIRA-1**: Provision SM project + auth | Create/verify SM project (idempotent, FR-OPS-01); Secret + Network Rule + External Access Integration (Module 9 §3). Adds to the setup script. |
+| **S-JIRA-1**: Provision SM project + auth | Create/verify SM project (idempotent, FR-OPS-01); Secret + Network Rule + External Access Integration (Module 9 §3). Adds to the setup script. **Built (2026-09-27, SH-53)** — `Reviewer-agent` clean PASS, all 7 invariants held. New `scripts/01b_setup_jira.sql` (Secret/Network Rule/EAI, run standalone via new `manage.py setup-jira` command, not folded into `up`); "create/verify SM project" narrowed during design to reuse the existing `SUP` project (`chirajpepz.atlassian.net`), documented rather than live-checked — no project-creation call added. Full detail: `docs/designs/SH-53-jira-sm-provision-auth.md`. |
 | **S-JIRA-2**: `SP_CREATE_JIRA_TICKET` procedure | Field mapping (Module 9 §1) + duplicate-check JQL logic (FR-JR-04, Module 9 §2). |
 | **S-JIRA-3**: Wire tool into Supervisor + Planner agents | `create_jira_ticket`/`request_jira_ticket` tool specs (Module 7 §3) — folds into post-setup script v2 alongside S-OPS-POST-2. |
 | **S-JIRA-4**: Streamlit tool-call confirmation UI | Distinct wording for `CREATED` vs `ALREADY_OPEN`/`RECENTLY_CLOSED` (Module 8 §4). |
