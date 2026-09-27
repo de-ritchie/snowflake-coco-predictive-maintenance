@@ -6,7 +6,9 @@ sourcing, etc.).
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from streamlit_app import get_connection, render_sidebar
 
@@ -202,6 +204,28 @@ def load_priority_signals() -> pd.DataFrame:
     )
 
 
+@st.cache_data(ttl=300)
+def load_oee_trend() -> pd.DataFrame:
+    """SH-48 §11.1: closes docs/04-8-LLD.md §1's deferred OEE trend chart
+    gap. availability_pct/oee_pct are stored as 0-1 ratios at the source
+    (same convention already fixed once for the Forecast OEE page) --
+    convert to 0-100 once, here, at load time.
+    """
+    conn = get_connection()
+    df = conn.query(
+        """
+        SELECT line_name, period_week, availability_pct, oee_pct
+        FROM cons.cons__fct_oee
+        ORDER BY line_name, period_week
+        """,
+        ttl=300,
+    )
+    df["PERIOD_WEEK"] = pd.to_datetime(df["PERIOD_WEEK"])
+    df["AVAILABILITY_PCT"] *= 100
+    df["OEE_PCT"] *= 100
+    return df
+
+
 render_sidebar()
 st.title("Overview")
 
@@ -219,8 +243,43 @@ for col, (_, eq) in zip(cols, equipment_df.iterrows()):
     status = status_for(eq["EQUIPMENT_ID"], health_df)
     with col:
         with st.container(border=True):
-            st.metric(eq["EQUIPMENT_NAME"], eq["LINE_NAME"])
+            st.metric(eq["LINE_NAME"], eq["EQUIPMENT_NAME"])
             st.markdown(render_badge(status), unsafe_allow_html=True)
+
+st.subheader("OEE trend")
+oee_trend_df = load_oee_trend()
+if oee_trend_df.empty:
+    st.write("No OEE data available.")
+else:
+    metric_label = st.radio(
+        "Metric", ["Availability %", "OEE %"], horizontal=True, key="oee_trend_metric"
+    )
+    metric_col = "AVAILABILITY_PCT" if metric_label == "Availability %" else "OEE_PCT"
+    rollup = st.segmented_control(
+        "Rollup", ["Weekly", "Monthly rollup"], default="Weekly", key="oee_trend_rollup"
+    )
+    if rollup == "Monthly rollup":
+        plot_df = (
+            oee_trend_df.assign(
+                period_month=oee_trend_df["PERIOD_WEEK"].dt.to_period("M").dt.to_timestamp()
+            )
+            .groupby(["LINE_NAME", "period_month"], as_index=False)[
+                ["AVAILABILITY_PCT", "OEE_PCT"]
+            ]
+            .mean()
+        )
+        x_col = "period_month"
+    else:
+        plot_df = oee_trend_df
+        x_col = "PERIOD_WEEK"
+    fig = px.line(plot_df, x=x_col, y=metric_col, color="LINE_NAME")
+    st.plotly_chart(fig, width="stretch")
+    st.caption(
+        f"Weeks after {pd.Timestamp.now().normalize():%Y-%m-%d} show availability near 100% "
+        "because no breakdown has been recorded for them yet, not because the model "
+        "predicts a breakdown-free future -- read future weeks as \"no data yet\", "
+        "not as a forecast."
+    )
 
 GAP_THRESHOLD = pd.Timedelta(days=2)
 
@@ -246,8 +305,12 @@ def split_trend_and_latest_tick(sensor_df: pd.DataFrame) -> tuple[pd.DataFrame, 
 
 
 st.subheader("Sensor detail")
+jump_to_equipment = st.session_state.pop("jump_to_equipment", None)
 for _, eq in equipment_df.iterrows():
-    with st.expander(f"{eq['EQUIPMENT_NAME']} ({eq['EQUIPMENT_ID']}) -- last {READINGS_PER_SENSOR} readings"):
+    with st.expander(
+        f"{eq['EQUIPMENT_NAME']} ({eq['EQUIPMENT_ID']}) -- last {READINGS_PER_SENSOR} readings",
+        expanded=(eq["EQUIPMENT_ID"] == jump_to_equipment),
+    ):
         history_df = load_sensor_history(eq["EQUIPMENT_ID"])
         if history_df.empty:
             st.write("No sensor readings available.")
@@ -280,21 +343,59 @@ st.caption(
     "readiness across all tracked parts (no failure-mode-to-part mapping "
     "exists yet, so no specific part is singled out)."
 )
+
+
+def render_priority_signal_chart(line_df: pd.DataFrame) -> go.Figure:
+    line_df = line_df.sort_values("ORDER_WEEK")
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=line_df["ORDER_WEEK"],
+            y=line_df["TRAILING_4WK_AVG_ORDER_UNITS"],
+            name="Order volume (trailing 4wk avg)",
+            mode="lines+markers",
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=line_df["ORDER_WEEK"],
+            y=line_df["AVG_ANOMALY_SCORE"],
+            name="Avg anomaly score",
+            mode="lines+markers",
+        ),
+        secondary_y=True,
+    )
+    fig.update_yaxes(title_text="Order units/wk", secondary_y=False)
+    fig.update_yaxes(title_text="Avg anomaly score", secondary_y=True)
+    fig.update_layout(height=280, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h"))
+    return fig
+
+
 signals_df = load_priority_signals()
 if signals_df.empty:
     st.write("No order/anomaly/inventory data available.")
 else:
     for line_name, line_df in signals_df.groupby("LINE_NAME"):
+        st.markdown(f"**{line_name}**")
+        st.plotly_chart(render_priority_signal_chart(line_df), width="stretch")
         latest = line_df.sort_values("ORDER_WEEK").iloc[-1]
-        avg_anomaly_score = latest["AVG_ANOMALY_SCORE"]
-        anomaly_count = latest["ANOMALY_COUNT"]
-        min_lead_time_days = latest["MIN_LEAD_TIME_DAYS"]
-        parts = []
-        parts.append(f"order volume trailing-4wk avg **{latest['TRAILING_4WK_AVG_ORDER_UNITS']:.0f}** units/wk")
-        if pd.notna(avg_anomaly_score):
-            parts.append(f"avg anomaly score **{avg_anomaly_score:.3f}** ({int(anomaly_count)} anomalous readings)")
-        else:
-            parts.append("no anomaly data for the latest order week")
-        if pd.notna(min_lead_time_days):
-            parts.append(f"spare-part lead time as low as **{min_lead_time_days:.0f} days**")
-        st.markdown(f"**{line_name}**: " + ", ".join(parts) + ".")
+        card_cols = st.columns(3)
+        with card_cols[0]:
+            with st.container(border=True):
+                st.metric(
+                    "Order volume (4wk avg)",
+                    f"{latest['TRAILING_4WK_AVG_ORDER_UNITS']:.0f}/wk",
+                )
+        with card_cols[1]:
+            with st.container(border=True):
+                if pd.notna(latest["AVG_ANOMALY_SCORE"]):
+                    st.metric("Avg anomaly score", f"{latest['AVG_ANOMALY_SCORE']:.3f}")
+                else:
+                    st.metric("Avg anomaly score", "No data")
+        with card_cols[2]:
+            with st.container(border=True):
+                if pd.notna(latest["MIN_LEAD_TIME_DAYS"]):
+                    st.metric("Min spare-part lead time", f"{latest['MIN_LEAD_TIME_DAYS']:.0f} days")
+                else:
+                    st.metric("Min spare-part lead time", "No data")

@@ -78,7 +78,11 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     oee_metric AS snowcomotive.cons.cons__fct_oee
       PRIMARY KEY (line_name, period_week)
       WITH SYNONYMS ('OEE', 'overall equipment effectiveness')
-      COMMENT = 'Weekly OEE (availability x performance x quality) by production line'
+      COMMENT = 'Weekly OEE (availability x performance x quality) by production line',
+    priority_score AS snowcomotive.cons.cons__fct_priority_score
+      PRIMARY KEY (equipment_id, score_ts)
+      WITH SYNONYMS ('priority', 'priority score', 'RUL', 'remaining useful life', 'urgency ranking')
+      COMMENT = 'Composite 0-100 priority score per machine (RUL urgency, demand pressure, inventory buffer, spare-part readiness) -- always latest-per-equipment, per docs/designs/SH-47-priority-score.md'
   )
   RELATIONSHIPS (
     sensor_reading_to_machine AS sensor_reading (equipment_id) REFERENCES machine (equipment_id),
@@ -87,7 +91,8 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     inventory_spare_to_machine AS inventory_spare (equipment_id) REFERENCES machine (equipment_id),
     machine_to_product AS machine (product_id, variant) REFERENCES product (product_id, variant),
     order_to_product AS order_ (product_id, variant) REFERENCES product (product_id, variant),
-    inventory_fg_to_product AS inventory_fg (product_id, variant) REFERENCES product (product_id, variant)
+    inventory_fg_to_product AS inventory_fg (product_id, variant) REFERENCES product (product_id, variant),
+    priority_score_to_machine AS priority_score (equipment_id) REFERENCES machine (equipment_id)
   )
   FACTS (
     sensor_reading.reading_value AS reading_value,
@@ -98,7 +103,14 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     inventory_spare.spare_units_on_hand AS units_on_hand,
     inventory_spare.spare_lead_time_days AS lead_time_days,
     oee_metric.scheduled_hours AS scheduled_hours,
-    oee_metric.breakdown_hours AS breakdown_hours
+    oee_metric.breakdown_hours AS breakdown_hours,
+    priority_score.priority_score AS priority_score,
+    priority_score.predicted_rul_hours AS predicted_rul_hours,
+    priority_score.rul_urgency AS rul_urgency,
+    priority_score.demand_pressure AS demand_pressure,
+    priority_score.inventory_buffer AS inventory_buffer,
+    priority_score.spare_part_readiness AS spare_part_readiness,
+    priority_score.required_run_hours_next_4wk AS required_run_hours_next_4wk
   )
   DIMENSIONS (
     machine.equipment_id AS equipment_id,
@@ -118,7 +130,8 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     inventory_fg.inventory_fg_period_week AS period_week,
     inventory_spare.inventory_spare_period_week AS period_week,
     inventory_spare.spare_part_name AS spare_part_name,
-    oee_metric.oee_period_week AS period_week
+    oee_metric.oee_period_week AS period_week,
+    priority_score.score_ts AS score_ts
   )
   METRICS (
     oee_metric.avg_availability_pct AS AVG(oee_metric.availability_pct),
@@ -195,6 +208,36 @@ LEFT JOIN spare_readiness sr
     ON sr.equipment_id = m.equipment_id AND sr.period_week = wo.order_week
 WHERE m.is_sensor_enabled
 ORDER BY m.line_name, wo.order_week DESC'
+    ),
+    priority_score_ranking AS (
+      QUESTION 'Which machines have the highest priority score right now, and why?'
+      SQL 'SELECT
+    eq.equipment_id,
+    eq.equipment_name,
+    eq.line_name,
+    ps.priority_score,
+    ps.rul_urgency,
+    ps.demand_pressure,
+    ps.inventory_buffer,
+    ps.spare_part_readiness
+FROM snowcomotive.cons.cons__fct_priority_score ps
+JOIN snowcomotive.cons.cons__dim_equipment eq
+    ON eq.equipment_id = ps.equipment_id
+ORDER BY ps.priority_score DESC'
+    ),
+    priority_score_demand_survivability AS (
+      QUESTION 'Which machines are at risk of failing before they can meet the next 4 weeks of demand?'
+      SQL 'SELECT
+    eq.equipment_id,
+    eq.equipment_name,
+    eq.line_name,
+    ps.predicted_rul_hours,
+    ps.required_run_hours_next_4wk,
+    IFF(ps.predicted_rul_hours < ps.required_run_hours_next_4wk, ''NO'', ''YES'') AS survives_next_4wk_demand
+FROM snowcomotive.cons.cons__fct_priority_score ps
+JOIN snowcomotive.cons.cons__dim_equipment eq
+    ON eq.equipment_id = ps.equipment_id
+ORDER BY ps.predicted_rul_hours - ps.required_run_hours_next_4wk ASC'
     )
   );
 
@@ -207,17 +250,24 @@ instructions:
   response: >
     You are the SnowComotive Maintenance Agent for a predictive-maintenance
     and OEE command center. Answer questions about machine health,
-    anomalies, maintenance events, OEE, orders, and inventory, grounded
-    strictly in the Analyst tool's query results against the semantic view.
-    Never fabricate a health, anomaly, OEE, or inventory value. If data for
-    a requested machine or time period is missing or stale, say so
-    explicitly rather than guessing.
+    anomalies, maintenance events, OEE, orders, inventory, priority score,
+    and predicted remaining-useful-life (RUL), grounded strictly in the
+    Analyst tool's query results against the semantic view. Never fabricate
+    a health, anomaly, OEE, inventory, priority-score, or RUL value. If
+    data for a requested machine or time period is missing or stale, say
+    so explicitly rather than guessing.
   orchestration: >
     Use the Analyst tool for any question about machine health, sensor
-    readings, anomalies, maintenance history, OEE, orders, or inventory.
-    This is currently the only tool available -- do not claim to be able to
-    create tickets or explain model predictions; if asked, say those
-    capabilities are not enabled yet.
+    readings, anomalies, maintenance history, OEE, orders, inventory,
+    priority score, or predicted remaining-useful-life (RUL). This is
+    currently the only tool available -- do not claim to be able to create
+    tickets; if asked, say ticketing is not enabled yet. Reporting a
+    predicted RUL or priority-score value returned by the Analyst tool is
+    expected and correct -- do not confuse this with "explaining" a
+    prediction (a feature-level breakdown of why the model produced that
+    specific number), which is a separate capability that is not enabled
+    yet; if asked to explain why a specific prediction was made, say so
+    explicitly rather than guessing at a feature-level rationale.
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
