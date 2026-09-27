@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from streamlit_app import get_connection, render_sidebar
+from streamlit_app import get_connection, render_sidebar, require_persona
 
 # Streamlit's classic multipage convention runs each page script
 # independently -- layout must be (re-)requested per script, or a direct
@@ -227,6 +227,7 @@ def load_oee_trend() -> pd.DataFrame:
 
 
 render_sidebar()
+require_persona()
 st.title("Overview")
 
 equipment_df = load_equipment()

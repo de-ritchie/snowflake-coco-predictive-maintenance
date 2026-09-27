@@ -3,10 +3,12 @@
 -- Traces to: FR-OPS-03, LLD Module 10 §5, docs/05-Epics.md EPIC-SKELETON §4.5/4.6
 -- Jira: SH-30 (S-SEM-1), SH-27 (S-SEM-2), SH-28 (S-AGENT-1), SH-31 (S-OPS-POST-1),
 --       SH-33 (S-OPS-POST-1b), SH-21/SH-32 (S-APP-1/2)
--- Status: Built (v1 -- skeleton scope: 8-entity semantic view, 1 verified
--- query, 1 Analyst-only agent, Streamlit stage). Per docs/05-Epics.md §2, this
--- file gets REVISED IN PLACE to v2 in EPIC-PERSONAS (S-OPS-POST-2, SH-60) once
--- the 3-persona expansion happens -- not replaced with a new file.
+-- Status: Built (v2 -- EPIC-PERSONAS, SH-60/S-OPS-POST-2: 3 Cortex Agent
+-- objects now -- maintenance_supervisor_agent (revised in place, gains
+-- create_jira_ticket), production_planner_agent and plant_manager_agent
+-- (new). Semantic view/verified-query clauses unchanged from v1 -- see
+-- docs/designs/SH-54-55-56-59-60-52-persona-suite.md §2/§4). Per
+-- docs/05-Epics.md §2, this file is REVISED IN PLACE, not replaced.
 --
 -- CREATE STREAMLIT itself is NOT in this file -- it references the stage
 -- created below, but the PUT of oee_command_center_app/ files must happen
@@ -241,6 +243,12 @@ ORDER BY ps.predicted_rul_hours - ps.required_run_hours_next_4wk ASC'
     )
   );
 
+-- v2 (EPIC-PERSONAS, SH-60/S-OPS-POST-2): maintenance_supervisor_agent
+-- revised in place to add create_jira_ticket (SH-56); two new agents,
+-- production_planner_agent (SH-54) and plant_manager_agent (SH-55), added
+-- alongside it. See docs/designs/SH-54-55-56-59-60-52-persona-suite.md §4
+-- for the frozen design. Semantic view clauses above are unchanged by this
+-- revision (§2 of that doc -- already done by SH-48's priority-score work).
 CREATE OR REPLACE AGENT snowcomotive.cons.maintenance_supervisor_agent
   PROFILE = '{"display_name": "SnowComotive Maintenance Agent"}'
   FROM SPECIFICATION $$
@@ -259,20 +267,136 @@ instructions:
   orchestration: >
     Use the Analyst tool for any question about machine health, sensor
     readings, anomalies, maintenance history, OEE, orders, inventory,
-    priority score, or predicted remaining-useful-life (RUL). This is
-    currently the only tool available -- do not claim to be able to create
-    tickets; if asked, say ticketing is not enabled yet. Reporting a
-    predicted RUL or priority-score value returned by the Analyst tool is
-    expected and correct -- do not confuse this with "explaining" a
-    prediction (a feature-level breakdown of why the model produced that
-    specific number), which is a separate capability that is not enabled
-    yet; if asked to explain why a specific prediction was made, say so
-    explicitly rather than guessing at a feature-level rationale.
+    priority score, or predicted remaining-useful-life (RUL). Only call
+    create_jira_ticket when the user explicitly asks to file, create, or
+    dispatch a maintenance ticket for a specific machine -- never
+    proactively, even if a machine looks at-risk. Report whichever status
+    the tool actually returns (CREATED, ALREADY_OPEN, or RECENTLY_CLOSED)
+    -- never assume or imply a fresh ticket was filed if the tool returned
+    an existing one. Explaining *why* a specific prediction was made
+    (a feature-level breakdown) is not enabled yet; if asked, say so
+    explicitly rather than guessing at a feature-level rationale --
+    reporting a predicted value returned by Analyst is fine and expected,
+    that is not the same capability.
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
       name: "Analyst"
-      description: "Answers questions about machine health, anomalies, maintenance events, OEE, orders, and inventory using the SnowComotive semantic view."
+      description: "Answers questions about machine health, anomalies, maintenance events, OEE, orders, inventory, and priority ranking using the SnowComotive semantic view."
+  - tool_spec:
+      type: "generic"
+      name: "create_jira_ticket"
+      description: "Creates a Jira Service Management ticket for a machine needing maintenance, unless one already exists (open or recently closed) -- in which case it returns the existing ticket instead of creating a duplicate. Only call when the user explicitly asks to file/create/dispatch a ticket -- never automatically."
+      input_schema:
+        type: "object"
+        properties:
+          equipment_id: { type: "string", description: "Machine needing maintenance" }
+          predicted_rul_hours: { type: "number", description: "Predicted remaining useful life, from the RUL model" }
+          priority_score: { type: "number", description: "Current priority score, 0-100" }
+          root_cause_summary: { type: "string", description: "Plain-language root cause, grounded in sensor/model data" }
+          requested_by_persona: { type: "string", description: "Maintenance Supervisor or Production Planner" }
+        required: ["equipment_id", "predicted_rul_hours", "priority_score", "root_cause_summary", "requested_by_persona"]
+tool_resources:
+  Analyst:
+    semantic_view: "snowcomotive.cons.oee_semantic_view"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "SNOWCOMOTIVE_WH"
+      query_timeout: 30
+  create_jira_ticket:
+    type: "procedure"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "SNOWCOMOTIVE_WH"
+    identifier: "SNOWCOMOTIVE.CONS.SP_CREATE_JIRA_TICKET"
+$$;
+
+CREATE OR REPLACE AGENT snowcomotive.cons.production_planner_agent
+  PROFILE = '{"display_name": "SnowComotive Production Planner Agent"}'
+  FROM SPECIFICATION $$
+models:
+  orchestration: auto
+instructions:
+  response: >
+    You are the SnowComotive Production Planner Agent for a predictive-
+    maintenance and OEE command center. Answer questions about demand
+    (orders), finished-goods and spare-parts inventory, OEE, priority
+    score, and predicted remaining-useful-life (RUL), grounded strictly in
+    the Analyst tool's query results against the semantic view. Never
+    fabricate a health, OEE, inventory, priority-score, or RUL value. If
+    data for a requested machine, product, or time period is missing or
+    stale, say so explicitly rather than guessing.
+  orchestration: >
+    Use the Analyst tool for questions about demand/orders, finished-goods
+    and spare-parts inventory, OEE, and priority/RUL signals -- frame
+    answers around production-planning impact (will we meet demand, what
+    is the OEE or supply risk) rather than raw sensor detail. Only call
+    request_jira_ticket when the user explicitly asks to escalate or
+    request maintenance attention on a machine -- never proactively, even
+    if a machine looks at-risk. Frame this call as requesting/escalating
+    to the Maintenance Supervisor, not as directly dispatching a repair --
+    you plan, you do not do hands-on maintenance work. Report whichever
+    status the tool actually returns (CREATED, ALREADY_OPEN, or
+    RECENTLY_CLOSED) -- never assume or imply a fresh escalation was filed
+    if the tool returned an existing one.
+tools:
+  - tool_spec:
+      type: "cortex_analyst_text_to_sql"
+      name: "Analyst"
+      description: "Answers questions about machine health, anomalies, maintenance events, OEE, orders, inventory, and priority ranking using the SnowComotive semantic view."
+  - tool_spec:
+      type: "generic"
+      name: "request_jira_ticket"
+      description: "Requests a Jira Service Management ticket to escalate a machine needing maintenance attention to the Maintenance Supervisor, unless one already exists (open or recently closed) -- in which case it returns the existing ticket instead of creating a duplicate. Only call when the user explicitly asks to escalate/request a ticket -- never automatically."
+      input_schema:
+        type: "object"
+        properties:
+          equipment_id: { type: "string", description: "Machine needing maintenance" }
+          predicted_rul_hours: { type: "number", description: "Predicted remaining useful life, from the RUL model" }
+          priority_score: { type: "number", description: "Current priority score, 0-100" }
+          root_cause_summary: { type: "string", description: "Plain-language root cause, grounded in sensor/model data" }
+          requested_by_persona: { type: "string", description: "Maintenance Supervisor or Production Planner" }
+        required: ["equipment_id", "predicted_rul_hours", "priority_score", "root_cause_summary", "requested_by_persona"]
+tool_resources:
+  Analyst:
+    semantic_view: "snowcomotive.cons.oee_semantic_view"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "SNOWCOMOTIVE_WH"
+      query_timeout: 30
+  request_jira_ticket:
+    type: "procedure"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "SNOWCOMOTIVE_WH"
+    identifier: "SNOWCOMOTIVE.CONS.SP_CREATE_JIRA_TICKET"
+$$;
+
+CREATE OR REPLACE AGENT snowcomotive.cons.plant_manager_agent
+  PROFILE = '{"display_name": "SnowComotive Plant Manager Agent"}'
+  FROM SPECIFICATION $$
+models:
+  orchestration: auto
+instructions:
+  response: >
+    You are the SnowComotive Plant Manager Agent, a read-only rollup
+    persona for OEE, machine health, and inventory oversight, grounded
+    strictly in the Analyst tool's query results against the semantic
+    view. Never fabricate a health, OEE, inventory, priority-score, or RUL
+    value. If data for a requested machine or time period is missing or
+    stale, say so explicitly rather than guessing.
+  orchestration: >
+    Use the Analyst tool for any question about machine health, anomalies,
+    maintenance history, OEE, orders, inventory, or priority score. You
+    have no ticketing tool -- never suggest filing, creating, or
+    escalating a ticket; if asked, say that ticketing is not available for
+    this persona and redirect the user to the Production Planner or
+    Maintenance Supervisor persona instead.
+tools:
+  - tool_spec:
+      type: "cortex_analyst_text_to_sql"
+      name: "Analyst"
+      description: "Answers questions about machine health, anomalies, maintenance events, OEE, orders, inventory, and priority ranking using the SnowComotive semantic view."
 tool_resources:
   Analyst:
     semantic_view: "snowcomotive.cons.oee_semantic_view"

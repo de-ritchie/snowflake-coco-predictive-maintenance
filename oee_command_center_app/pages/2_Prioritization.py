@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from streamlit_app import get_connection, render_sidebar
+from streamlit_app import get_connection, render_sidebar, require_persona
 
 st.set_page_config(page_title="Prioritization", layout="wide")
 
@@ -54,6 +54,7 @@ def load_priority_queue() -> pd.DataFrame:
 
 
 render_sidebar()
+require_persona()
 st.title("Prioritization")
 st.caption(
     "Ranked by composite priority score (RUL urgency, demand pressure, "

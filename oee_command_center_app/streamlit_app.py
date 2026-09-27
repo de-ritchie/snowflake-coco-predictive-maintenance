@@ -1,13 +1,13 @@
 """SnowComotive OEE Command Center -- Streamlit app shell (SH-21, S-APP-1 T1).
 
 Home/landing page for the native multipage app (see pages/1_Overview.py).
-Owns the shared Snowflake connection helper and sidebar -- both imported by
-page scripts so the sidebar renders consistently across pages.
+Owns the shared Snowflake connection helper, sidebar, and persona registry/
+gate (SH-59) -- all imported by page scripts so they render consistently
+across pages. See docs/designs/SH-54-55-56-59-60-52-persona-suite.md §5 for
+the persona picker/gate design.
 
-No persona switcher yet (single agent for now, per the frozen design doc
-docs/designs/SH-21-streamlit-shell-overview-page.md) and no sidebar machine
-filter (only 1 sensor-enabled machine exists today) -- both explicitly out
-of scope for this story.
+No sidebar machine filter yet (only 1 sensor-enabled machine exists today)
+-- out of scope for this story.
 """
 
 import os
@@ -16,6 +16,27 @@ import streamlit as st
 from streamlit.connections import SnowflakeConnection
 
 CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
+
+# Persona registry (SH-59, S-PERSONA-3): single source of truth for both the
+# picker page and the Chat page's agent-name resolution. See
+# docs/designs/SH-54-55-56-59-60-52-persona-suite.md §5.2.
+PERSONAS = {
+    "supervisor": {
+        "label": "Maintenance Supervisor",
+        "agent_name": "maintenance_supervisor_agent",
+        "blurb": "Hands-on machine health, root-cause, and maintenance dispatch.",
+    },
+    "planner": {
+        "label": "Production Planner",
+        "agent_name": "production_planner_agent",
+        "blurb": "Demand, inventory, and OEE risk -- escalates maintenance requests, doesn't dispatch directly.",
+    },
+    "plant_manager": {
+        "label": "Plant Manager",
+        "agent_name": "plant_manager_agent",
+        "blurb": "Read-only OEE/health/inventory rollup -- no ticketing.",
+    },
+}
 
 
 def get_connection() -> SnowflakeConnection:
@@ -74,6 +95,24 @@ def render_sidebar() -> None:
         disabled=True,
         help="Tick injection is not wired yet -- placeholder for a future story.",
     )
+
+
+def require_persona() -> str:
+    """Call at the top of every page except the picker itself (SH-59, §5.4).
+    Returns the active persona key, or halts the page with a redirect prompt
+    if none is set yet -- restores from ?persona= query param first (survives
+    a hard refresh), matching the ?demo=1 convention.
+    """
+    if "persona" not in st.session_state:
+        param = st.query_params.get("persona")
+        if param in PERSONAS:
+            st.session_state["persona"] = param
+    if "persona" not in st.session_state:
+        st.info("Please choose a persona to continue.")
+        if st.button("Choose persona"):
+            st.switch_page("pages/0_Choose_Persona.py")
+        st.stop()
+    return st.session_state["persona"]
 
 
 # Guarded so this only runs when Streamlit executes this file directly as

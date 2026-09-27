@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from streamlit_app import get_connection, render_sidebar
+from streamlit_app import get_connection, render_sidebar, require_persona
 
 st.set_page_config(page_title="Forecast OEE", layout="wide")
 
@@ -118,6 +118,7 @@ def load_latest_oee() -> pd.DataFrame:
 
 
 render_sidebar()
+require_persona()
 st.title("Forecast OEE")
 st.caption(
     f"{LOOKAHEAD_WEEKS}-week-lookahead projected Availability, shaded where a "

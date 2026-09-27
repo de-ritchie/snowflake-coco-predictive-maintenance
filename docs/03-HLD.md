@@ -210,6 +210,8 @@ priority_score = 0.40 * rul_urgency        -- normalized inverse of predicted RU
 
 **Streamlit pages** (FR-CC-01 to 07): Overview (health + OEE), Priority Queue, Forecast OEE, Agent Chat (persona-scoped), Impact Statement. Persona switcher is a sidebar control, not a separate page.
 
+**Deviation footnote (2026-09-27, SH-59)**: the persona switcher was actually shipped as a dedicated landing page (`oee_command_center_app/pages/0_Choose_Persona.py`), inserted first in Streamlit's multipage nav, with a hard gate (`require_persona()`) that redirects any other page back to the picker if no persona is chosen yet — not the sidebar control described above. The original sentence is left as-is, not rewritten, per this repo's footnote convention. Full detail: `docs/designs/SH-54-55-56-59-60-52-persona-suite.md` §1a.
+
 **Agent tools by persona** (FR-SA-02) — real Cortex Agent tool types, see LLD Module 7 for full `tool_spec`/`tool_resources`:
 - Supervisor: `Analyst` (`cortex_analyst_text_to_sql`), `explain_prediction` (`generic`, FR-FS-00d, pending validation), `create_jira_ticket` (`generic`)
 - Planner: `Analyst`, `explain_prediction`, `request_jira_ticket` (same underlying stored procedure as `create_jira_ticket`, escalation framing via orchestration instructions)
