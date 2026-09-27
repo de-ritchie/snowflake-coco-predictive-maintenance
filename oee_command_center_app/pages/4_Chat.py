@@ -5,6 +5,12 @@ REST API. See docs/designs/SH-27-28-30-31-32-33-semantic-view-agent-chat.md
 persona-suite.md §6/§7 for the persona-awareness, live tool introspection,
 and ticket-confirmation UI added here.
 
+Chat history is keyed per-persona (`st.session_state.chat_histories[persona]`),
+not one shared list -- switching personas must not leak one persona's
+conversation/tool availability into another's. A "Clear chat" button lets the
+user reset the *current* persona's history without switching personas
+(post-merge manual-testing fix, 2026-09-27).
+
 DEVIATION FROM THE DESIGN DOC'S SSE SKETCH (confirmed live, 2026-09-23):
 this page uses a single non-streaming JSON response (`stream: false` +
 `Accept: application/json`) instead of parsing the SSE event stream
@@ -193,15 +199,25 @@ persona = require_persona()
 agent_name = PERSONAS[persona]["agent_name"]
 agent_run_path = f"/api/v2/databases/{AGENT_DATABASE}/schemas/{AGENT_SCHEMA}/agents/{agent_name}:run"
 
-st.title("Chat")
+title_col, clear_col = st.columns([6, 1])
+with title_col:
+    st.title("Chat")
+with clear_col:
+    st.button("Clear chat", on_click=lambda: st.session_state.chat_histories.pop(persona, None))
 st.caption(f"Chatting as {PERSONAS[persona]['label']} -- {PERSONAS[persona]['blurb']}")
 for tool_name in get_agent_tool_names(agent_name):
     st.caption(f"• {TOOL_DISPLAY.get(tool_name, tool_name)}")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+# Chat history is keyed by persona, not a single flat list -- switching
+# personas must not leak one persona's conversation into another's, since
+# each persona maps to a different agent with different tools/framing.
+# An explicit "Clear chat" button (above) additionally lets the user reset
+# the *current* persona's history without switching personas at all.
+if "chat_histories" not in st.session_state:
+    st.session_state.chat_histories = {}
+chat_history = st.session_state.chat_histories.setdefault(persona, [])
 
-for message in st.session_state.chat_history:
+for message in chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["text"])
         for ticket_result in message.get("ticket_results", []):
@@ -209,13 +225,13 @@ for message in st.session_state.chat_history:
 
 user_input = st.chat_input("Ask a question...")
 if user_input:
-    st.session_state.chat_history.append({"role": "user", "text": user_input})
+    chat_history.append({"role": "user", "text": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
     agent_messages = [
         {"role": m["role"], "content": [{"type": "text", "text": m["text"]}]}
-        for m in st.session_state.chat_history
+        for m in chat_history
     ]
 
     with st.chat_message("assistant"):
@@ -230,6 +246,6 @@ if user_input:
             st.markdown(response_text)
             for ticket_result in ticket_results:
                 render_ticket_confirmation(ticket_result)
-            st.session_state.chat_history.append(
+            chat_history.append(
                 {"role": "assistant", "text": response_text, "ticket_results": ticket_results}
             )
