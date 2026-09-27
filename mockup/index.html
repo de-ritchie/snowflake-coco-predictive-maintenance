@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SnowComotive — Predictive Maintenance &amp; OEE Command Center (mockup)</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- Sidebar: persona switcher, machine filter, demo tick button (Module 8 LLD §0) -->
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> SnowComotive</div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Persona (FR-CC-04 · SH-59)</div>
+      <div id="persona-list"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Machine filter</div>
+      <select id="machine-filter" class="machine-filter"></select>
+    </div>
+
+    <div class="demo-flag">Demo-only control (FR-CC-06 · SH-33)</div>
+    <button id="tick-btn" class="tick-btn">Inject next tick</button>
+  </aside>
+
+  <div class="main">
+    <nav class="topnav">
+      <button data-page="overview" class="active">Overview</button>
+      <button data-page="priority">Priority Queue</button>
+      <button data-page="forecast">Forecast OEE</button>
+      <button data-page="chat">Agent Chat</button>
+      <button data-page="impact">Impact Statement</button>
+    </nav>
+
+    <!-- Overview (FR-CC-01, SH-21) -->
+    <section class="page active" id="page-overview">
+      <h1 class="page-title">Overview</h1>
+      <p class="page-sub">Health status per machine, OEE trend, raw sensor detail — Module 8 LLD §1</p>
+
+      <div class="grid-3" id="health-cards"></div>
+
+      <div class="card" style="margin-bottom:18px;">
+        <div class="section-title">
+          OEE trend (cons.fct_oee)
+          <span class="toggle-group" id="oee-toggle">
+            <button data-view="weekly" class="active">Weekly</button>
+            <button data-view="monthly">Monthly rollup</button>
+          </span>
+        </div>
+        <div class="chart-wrap" id="oee-chart"></div>
+        <div class="legend" id="oee-legend"></div>
+      </div>
+
+      <div class="section-title">Sensor detail (expandable, raw units — not z-scores)</div>
+      <div id="sensor-details"></div>
+    </section>
+
+    <!-- Priority Queue (FR-CC-02, SH-48) -->
+    <section class="page" id="page-priority">
+      <h1 class="page-title">Priority Queue</h1>
+      <p class="page-sub">cons.fct_priority_score, ranked — Module 8 LLD §2</p>
+      <div class="hint" id="pq-hint"></div>
+      <div class="card table-wrap">
+        <table class="pq-table">
+          <thead>
+            <tr>
+              <th>Machine</th>
+              <th>Priority score</th>
+              <th>RUL urgency</th>
+              <th>Demand pressure</th>
+              <th>Inventory buffer</th>
+              <th>Spare part readiness</th>
+              <th>Contributing factors</th>
+            </tr>
+          </thead>
+          <tbody id="pq-table-body"></tbody>
+        </table>
+      </div>
+      <p class="page-sub" style="margin-top:10px;">Click a row to jump to that machine's sensor detail on Overview.</p>
+    </section>
+
+    <!-- Forecast OEE (FR-CC-03, SH-48) -->
+    <section class="page" id="page-forecast">
+      <h1 class="page-title">Forecast OEE</h1>
+      <p class="page-sub">8-week projected availability vs. demand look-ahead — Module 8 LLD §3, demo beat 7</p>
+      <div class="card">
+        <div class="section-title">Projected Availability</div>
+        <div class="chart-wrap" id="forecast-chart"></div>
+        <div class="legend" id="forecast-legend"></div>
+      </div>
+      <div id="forecast-callout" style="margin-top:14px;"></div>
+    </section>
+
+    <!-- Agent Chat (FR-CC-05, SH-32/SH-52) -->
+    <section class="page" id="page-chat">
+      <h1 class="page-title">Agent Chat — <span id="chat-persona-name"></span></h1>
+      <p class="page-sub">One page, three agent objects depending on sidebar persona — Module 8 LLD §4</p>
+      <div class="chat-layout">
+        <div class="chat-panel">
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" placeholder="Ask about machine health, RUL, OEE, priority..." disabled />
+            <button class="step-btn" id="chat-step-btn">▶ Replay scripted demo</button>
+          </div>
+        </div>
+        <div class="persona-context">
+          <h3>Active tools</h3>
+          <div id="persona-context-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Impact Statement (FR-CC-07, SH-57) -->
+    <section class="page" id="page-impact">
+      <h1 class="page-title">Impact Statement</h1>
+      <p class="page-sub">4 metric cards, computed from pipeline/model output — Module 8 LLD §5, BRD §8</p>
+      <div class="grid-3" id="impact-cards"></div>
+    </section>
+  </div>
+</div>
+
+<div class="footer-note">
+  Mockup only — no live Snowflake connection. Data is hand-rolled in <code>data.js</code>. See <code>README.md</code> for the doc/Jira traceability behind every section.
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
