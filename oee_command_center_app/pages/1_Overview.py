@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from streamlit_app import get_connection, render_sidebar
+from streamlit_app import get_connection, render_sidebar, require_persona
 
 # Streamlit's classic multipage convention runs each page script
 # independently -- layout must be (re-)requested per script, or a direct
@@ -227,6 +227,7 @@ def load_oee_trend() -> pd.DataFrame:
 
 
 render_sidebar()
+require_persona()
 st.title("Overview")
 
 equipment_df = load_equipment()
@@ -328,7 +329,9 @@ for _, eq in equipment_df.iterrows():
                     y="READING_VALUE",
                     title=sensor_type,
                 )
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(
+                    fig, width="stretch", key=f"sensor_chart_{eq['EQUIPMENT_ID']}_{sensor_type}"
+                )
                 if latest_tick is not None:
                     st.caption(
                         f"Latest tick: {latest_tick['READING_VALUE']:.2f} "
@@ -378,7 +381,11 @@ if signals_df.empty:
 else:
     for line_name, line_df in signals_df.groupby("LINE_NAME"):
         st.markdown(f"**{line_name}**")
-        st.plotly_chart(render_priority_signal_chart(line_df), width="stretch")
+        st.plotly_chart(
+            render_priority_signal_chart(line_df),
+            width="stretch",
+            key=f"priority_signal_chart_{line_name}",
+        )
         latest = line_df.sort_values("ORDER_WEEK").iloc[-1]
         card_cols = st.columns(3)
         with card_cols[0]:
