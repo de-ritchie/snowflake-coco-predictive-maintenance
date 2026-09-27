@@ -11,9 +11,20 @@ No sidebar machine filter yet (only 1 sensor-enabled machine exists today)
 """
 
 import os
+from typing import TYPE_CHECKING
 
 import streamlit as st
-from streamlit.connections import SnowflakeConnection
+
+if TYPE_CHECKING:
+    # Type-hint only -- Streamlit-in-Snowflake's bundled streamlit build does
+    # not export SnowflakeConnection from streamlit.connections (confirmed
+    # live, 2026-09-28: "cannot import name 'SnowflakeConnection' from
+    # 'streamlit.connections'"), even though local dev's streamlit does.
+    # Guarding the import under TYPE_CHECKING means it never actually
+    # executes at runtime, in either environment -- get_connection()'s
+    # return annotation below is a string/forward-reference for the same
+    # reason.
+    from streamlit.connections import SnowflakeConnection
 
 CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
 
@@ -39,7 +50,7 @@ PERSONAS = {
 }
 
 
-def get_connection() -> SnowflakeConnection:
+def get_connection() -> "SnowflakeConnection":
     """This project's standard Snowflake connection convention (AGENTS.md):
     the named `snow-coco` connection from ~/.snowflake/connections.toml,
     overridable via the SNOWFLAKE_CONNECTION_NAME env var (same convention
@@ -69,17 +80,62 @@ def get_connection() -> SnowflakeConnection:
     above ("got multiple values for keyword argument 'connection_name'", the
     same conflict SH-21 already hit once with `type=`). Running `USE ...`
     after connecting avoids both problems.
+
+    `USE ...` statements are skipped entirely when running inside actual
+    Streamlit-in-Snowflake (confirmed live, 2026-09-28: "Unsupported statement
+    type 'USE'" -- the owner's-rights sandboxed execution environment doesn't
+    support USE ROLE/WAREHOUSE/DATABASE/SCHEMA via a raw cursor at all, a hard
+    platform restriction, not a version gap). They're also unnecessary there:
+    the STREAMLIT object itself lives in SNOWCOMOTIVE.CONS with
+    QUERY_WAREHOUSE = snowcomotive_wh and owner SNOWCOMOTIVE_ROLE, so the
+    session's role/warehouse/default-database are already correct by
+    ownership, and every query in this app schema-qualifies its tables (e.g.
+    `cons.cons__dim_equipment`), relying only on default database (already
+    SNOWCOMOTIVE) -- not on `USE SCHEMA`. Detected the same way `Chat.py`'s
+    `call_agent()` detects SiS vs. local dev: `_snowflake` is only importable
+    when actually running inside Streamlit-in-Snowflake.
     """
     conn = st.connection(CONNECTION_NAME, type="snowflake")
-    cur = conn.cursor()
     try:
-        cur.execute("USE ROLE SNOWCOMOTIVE_ROLE")
-        cur.execute("USE WAREHOUSE SNOWCOMOTIVE_WH")
-        cur.execute("USE DATABASE SNOWCOMOTIVE")
-        cur.execute("USE SCHEMA RAW")
-    finally:
-        cur.close()
+        import _snowflake  # noqa: F401
+
+        in_sis = True
+    except ImportError:
+        in_sis = False
+
+    if not in_sis:
+        cur = conn.cursor()
+        try:
+            cur.execute("USE ROLE SNOWCOMOTIVE_ROLE")
+            cur.execute("USE WAREHOUSE SNOWCOMOTIVE_WH")
+            cur.execute("USE DATABASE SNOWCOMOTIVE")
+            cur.execute("USE SCHEMA RAW")
+        finally:
+            cur.close()
     return conn
+
+
+def _get_query_param(name: str) -> str | None:
+    """Streamlit-in-Snowflake's bundled streamlit build predates the stable
+    `st.query_params` API (confirmed live, 2026-09-28:
+    "AttributeError: module 'streamlit' has no attribute 'query_params'"),
+    even though local dev's streamlit has it. Falls back to the older
+    `experimental_get_query_params()` API only where `query_params` is
+    actually missing -- local dev's behavior is unchanged either way, since
+    it always has `query_params` and takes the first branch.
+    """
+    if hasattr(st, "query_params"):
+        return st.query_params.get(name)
+    values = st.experimental_get_query_params().get(name)
+    return values[0] if values else None
+
+
+def _set_query_param(name: str, value: str) -> None:
+    """Write-side counterpart of _get_query_param() -- see its docstring."""
+    if hasattr(st, "query_params"):
+        st.query_params[name] = value
+    else:
+        st.experimental_set_query_params(**{name: value})
 
 
 def render_sidebar() -> None:
@@ -88,7 +144,7 @@ def render_sidebar() -> None:
     behavior is a separate, not-yet-wired story; this is a disabled
     placeholder that establishes the gating convention.
     """
-    if st.query_params.get("demo") != "1":
+    if _get_query_param("demo") != "1":
         return
     st.sidebar.button(
         "Inject next tick",
@@ -104,7 +160,7 @@ def require_persona() -> str:
     a hard refresh), matching the ?demo=1 convention.
     """
     if "persona" not in st.session_state:
-        param = st.query_params.get("persona")
+        param = _get_query_param("persona")
         if param in PERSONAS:
             st.session_state["persona"] = param
     if "persona" not in st.session_state:

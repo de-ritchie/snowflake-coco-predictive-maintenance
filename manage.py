@@ -249,11 +249,38 @@ def _put_streamlit_app_files(cur) -> None:
         f"PUT 'file://{main_file}' @snowcomotive.cons.streamlit_stage/ "
         "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
     )
+    # environment.yml must sit at the stage root, alongside the main file --
+    # without it, this warehouse-runtime app silently defaults to Streamlit
+    # 1.22.0 (Snowflake's oldest supported version), which is missing
+    # st.query_params, st.container(border=...), and the current
+    # streamlit.connections.SnowflakeConnection -- all three broke live,
+    # 2026-09-28, before this file existed. Also pins plotly/pandas, which
+    # the 3 chart pages import directly and which aren't in SiS's default
+    # package set (only python/streamlit/snowpark come pre-installed).
+    env_file = STREAMLIT_APP_DIR / "environment.yml"
+    cur.execute(
+        f"PUT 'file://{env_file}' @snowcomotive.cons.streamlit_stage/ "
+        "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+    )
+    local_page_names = set()
     for page_file in sorted((STREAMLIT_APP_DIR / "pages").glob("*.py")):
+        local_page_names.add(page_file.name)
         cur.execute(
             f"PUT 'file://{page_file}' @snowcomotive.cons.streamlit_stage/pages/ "
             "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
         )
+    # Prune stage files with no matching local pages/*.py -- PUT only
+    # uploads, it never deletes, so a renamed/removed page (e.g. Chat.py's
+    # SH-48 renumbering from 2_Chat.py to 4_Chat.py) otherwise leaves a
+    # stale orphaned file live on the stage forever, which Streamlit's
+    # multipage router will still pick up as a real (broken/duplicate) nav
+    # entry. Found and fixed live, 2026-09-28, after exactly this happened.
+    cur.execute("LIST @snowcomotive.cons.streamlit_stage/pages/")
+    for row in cur.fetchall():
+        staged_name = row[0].rsplit("/", 1)[-1]
+        if staged_name not in local_page_names:
+            print(f"  Removing stale stage file: pages/{staged_name}")
+            cur.execute(f"REMOVE @snowcomotive.cons.streamlit_stage/pages/{staged_name}")
 
 
 def run_post_setup() -> None:
@@ -564,6 +591,14 @@ def setup_jira(
     if not token:
         token = typer.prompt("Jira Cloud API token", hide_input=True)
     run_setup_jira(token)
+
+
+@app.command("post-setup")
+def post_setup() -> None:
+    """Re-run semantic view + agents + Streamlit deploy (scripts/07_post_setup.sql)
+    without re-running the full data/training pipeline -- use this to redeploy
+    after Streamlit app code or agent-DDL changes."""
+    run_post_setup()
 
 
 @demo_app.command("inject-tick")

@@ -7,7 +7,7 @@ not a sidebar control, per the confirmed HLD deviation).
 
 import streamlit as st
 
-from streamlit_app import PERSONAS, render_sidebar
+from streamlit_app import PERSONAS, _set_query_param, render_sidebar
 
 st.set_page_config(page_title="Choose Persona", layout="wide")
 
@@ -32,5 +32,5 @@ for column, (key, persona) in zip(columns, PERSONAS.items()):
             st.write(persona["blurb"])
             if st.button(f"Continue as {persona['label']}", key=f"persona_{key}"):
                 st.session_state["persona"] = key
-                st.query_params["persona"] = key
+                _set_query_param("persona", key)
                 st.switch_page("pages/1_Overview.py")
