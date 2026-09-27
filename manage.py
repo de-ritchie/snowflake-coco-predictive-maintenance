@@ -79,6 +79,17 @@ down:
   1. scripts/09_teardown.sql -- drops database (cascades), role, warehouse
      (runs as ACCOUNTADMIN -- 09_teardown.sql drops snowcomotive_role itself)
 
+setup-jira (SH-53 / S-JIRA-1): standalone, NOT part of `up` -- provisions the
+  Jira SM auth plumbing (Secret/Network Rule/External Access Integration) a
+  future SP_CREATE_JIRA_TICKET (SH-58) will declare against. Requires a real
+  Jira Cloud API token supplied at invocation time (--token flag,
+  JIRA_API_TOKEN env var, or an interactive hidden prompt -- see that
+  command's own docstring), which is why it's kept out of the unattended
+  `up` sequence. Runs scripts/01b_setup_jira.sql via its own
+  snowcomotive_role connector session, binding the token as a SQL session
+  variable (`SET jira_api_token = ...`) so the literal token value never
+  appears in the .sql file, in this script's own print()s, or on disk.
+
 demo (SH-41 / S-DATA-9): no CREATE TASK/EXECUTE TASK -- direct synchronous
 PUT + COPY INTO for a single live_ticks/ file per invocation, deliberately
 simpler than Module 10 §6's literal pseudocode (frozen design doc SH-34-36-41
@@ -341,6 +352,22 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
     )
 
 
+def run_setup_jira(token: str) -> None:
+    # SH-53 / S-JIRA-1: own snowcomotive_role connector session (no ACCOUNTADMIN
+    # needed -- this is pure Secret/Network Rule/EAI provisioning, not
+    # role/warehouse/db bootstrap). The token is bound via a SET session
+    # variable, never string-substituted into SQL text, so it can't leak into
+    # run_sql_file's own print() of each statement's first line.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        cur.execute("SET jira_api_token = %s", (token,))
+        run_sql_file(cur, SCRIPTS_DIR / "01b_setup_jira.sql")
+    finally:
+        conn.close()
+    print("--- setup-jira complete ---")
+
+
 def run_down() -> None:
     # role='ACCOUNTADMIN' -- same deadlock avoidance as run_up(): 09_teardown.sql
     # drops snowcomotive_role, so the connection must not be logged in as it.
@@ -516,6 +543,22 @@ def up(
 def down() -> None:
     """Tear down env (database/role/warehouse)."""
     run_down()
+
+
+@app.command("setup-jira")
+def setup_jira(
+    token: str = typer.Option(
+        None,
+        "--token",
+        envvar="JIRA_API_TOKEN",
+        help="Jira Cloud API token. Prefer the JIRA_API_TOKEN env var over this flag "
+        "(a bare CLI arg is visible in shell history/process listings).",
+    ),
+) -> None:
+    """Provision the Jira SM Secret/Network Rule/External Access Integration (SH-53)."""
+    if not token:
+        token = typer.prompt("Jira Cloud API token", hide_input=True)
+    run_setup_jira(token)
 
 
 @demo_app.command("inject-tick")
