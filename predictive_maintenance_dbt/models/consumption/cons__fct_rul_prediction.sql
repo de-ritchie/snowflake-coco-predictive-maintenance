@@ -11,7 +11,7 @@
 
 {{ config(
     materialized='dynamic_table',
-    target_lag='1 hour',
+    target_lag='DOWNSTREAM',
     schema='cons',
     snowflake_warehouse='snowcomotive_wh',
     refresh_mode='incremental',

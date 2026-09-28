@@ -229,6 +229,7 @@ Everything else needed to make the incrementally-built scripts fully match their
 |---|---|
 | **S-OPS-HARDEN-1**: Idempotency pass across setup/pipeline/post-setup/demo scripts | Confirm `CREATE OR REPLACE`/`IF NOT EXISTS` everywhere; confirm `COPY INTO` load-history dedup; confirm phase-2-before-training fails loudly, not silently (FR-OPS-06). |
 | **S-OPS-HARDEN-2**: Full demo script (both production modes) | Background pre-demo drip upload process (mode a) alongside the on-demand trigger (mode b) already built in S-DEMO-1/EPIC-FULLDATA (FR-PL-04b). |
+| **S-OPS-HARDEN-3**: Parameterize dynamic table `target_lag` (leaf-only param + `DOWNSTREAM` cascade) | Replace all 6 dynamic tables' independently-hardcoded `target_lag='1 hour'` with one configurable knob: `cons__fct_priority_score` (the sole leaf) reads a dbt var (`target_lag`, `DYNAMIC_TABLE_TARGET_LAG` env var, default `'1 hour'`) exposed via `manage.py up --target-lag`; the 5 upstream tables get hardcoded `target_lag='DOWNSTREAM'` and follow the leaf's cadence automatically (Snowflake's real minimum is 60s, not 30s). Confirmed live (SH-72, 2026-09-28): whole chain auto-refreshes end-to-end with no manual `dbt run`. See `docs/designs/SH-72-parameterize-target-lag.md`. |
 
 ---
 

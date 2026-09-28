@@ -1,10 +1,11 @@
-{{ config(materialized='dynamic_table', target_lag='1 hour', schema='std', snowflake_warehouse='snowcomotive_wh', tags=['standardized'], immutable_where='reading_ts < DATEADD(hour, -1, CURRENT_TIMESTAMP())') }}
+{{ config(materialized='dynamic_table', target_lag='DOWNSTREAM', schema='std', snowflake_warehouse='snowcomotive_wh', tags=['standardized'], immutable_where='reading_ts < DATEADD(hour, -1, CURRENT_TIMESTAMP())') }}
 
--- Leakage-safe joins (FR-PL-02, FR-PL-03). NOTE: target_lag is 1 hour here,
--- a deliberate temporary deviation from FR-PL-04a's 15-minute spec for this
--- credit-conservative thin/dev pass -- revert to 15 minutes before the demo
--- cadence (FR-PL-04, FR-CC-06) actually matters. See design doc
--- docs/designs/2 - SH-2-15-20-24-26-dbt-scaffold-consumption.md section 2.
+-- Leakage-safe joins (FR-PL-02, FR-PL-03). target_lag is DOWNSTREAM (SH-72)
+-- -- this is a purely intermediate table in the 6-table dynamic-table chain
+-- (std -> cons.sensor_reading -> feast.inference -> cons.anomaly_result ->
+-- cons.rul_prediction -> cons.priority_score); Snowflake derives its refresh
+-- cadence from the chain's one leaf (cons__fct_priority_score's parameterized
+-- target_lag) automatically. No longer independently pinned to 1 hour.
 -- NOTE: this Snowflake account's ASOF JOIN grammar does not accept an
 -- explicit LEFT/INNER prefix (verified empirically) -- bare `ASOF JOIN`
 -- already null-pads unmatched left rows (outer semantics by default), so no

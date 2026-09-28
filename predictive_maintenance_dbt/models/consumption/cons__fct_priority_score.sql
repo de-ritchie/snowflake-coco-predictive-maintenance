@@ -1,6 +1,6 @@
 {{ config(
     materialized='dynamic_table',
-    target_lag='1 hour',
+    target_lag=var('target_lag'),
     schema='cons',
     snowflake_warehouse='snowcomotive_wh',
     refresh_mode='auto',
@@ -27,10 +27,16 @@
 -- that CTE's own comment) -- it joins into `scored` as a 1-row CROSS JOIN,
 -- so it doesn't change the row-count shape of the join itself.
 --
--- target_lag is 1 hour, not the LLD's 15 minutes -- Snowflake requires a
--- dynamic table's lag to be >= its dependencies' own lag, and
--- cons__fct_rul_prediction is itself temporarily pinned to 1 hour (see that
--- model's own config comment) instead of the 15-minute demo-cadence spec.
+-- target_lag is parameterized (dbt var `target_lag`, dbt_project.yml,
+-- default '1 hour') -- this is the pipeline's one leaf table (the only one
+-- of the 6-table chain queried by anything outside this dbt-ref DAG: the
+-- semantic view + Overview page), so it's the only one that needs an
+-- explicit, operator-tunable lag. The 5 upstream tables are all
+-- target_lag=DOWNSTREAM and derive their own refresh cadence from this
+-- value automatically (Snowflake's own documented best practice for a
+-- single linear dynamic-table chain; SH-72). Set via
+-- `manage.py up --target-lag <value>` (e.g. '1 minute' for a faster demo
+-- cadence) -- Snowflake's real minimum is 60 seconds.
 --
 -- refresh_mode is 'auto', not 'incremental' -- PERCENTILE_CONT (used in
 -- rul_cap below) doesn't support Snowflake change tracking, so incremental

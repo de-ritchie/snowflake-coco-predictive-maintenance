@@ -1,6 +1,6 @@
 {{ config(
     materialized='dynamic_table',
-    target_lag='1 hour',
+    target_lag='DOWNSTREAM',
     schema='feast',
     snowflake_warehouse='snowcomotive_wh',
     refresh_mode='incremental',
@@ -8,8 +8,8 @@
 ) }}
 
 -- Always-fresh feature table (FR-FS-01, Module 4 §2). target_lag is
--- temporarily 1 hour, matching std__sensor_reading/cons__fct_sensor_reading's
--- same credit-conservative thin/dev deviation from the 15-minute demo spec.
+-- DOWNSTREAM (SH-72) -- purely intermediate in the 6-table dynamic-table
+-- chain; cadence derives from cons__fct_priority_score's parameterized lag.
 -- refresh_mode is pinned to INCREMENTAL (not left on AUTO) so CREATE fails
 -- loudly if the macro ever stops being incrementally maintainable, instead of
 -- silently falling back to a full rescore that would break the "predict only
