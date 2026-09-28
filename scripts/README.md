@@ -83,6 +83,17 @@ original thin skeleton) is left untouched as a standalone reference script —
 `manage.py up` no longer calls it. Running the generator manually is only
 needed for standalone debugging outside `manage.py`:
 
+`--target-lag` (default `'1 hour'`, SH-72) sets the dbt `target_lag` var,
+which only `cons__fct_priority_score` (the pipeline's one leaf table) reads
+directly (`target_lag=var('target_lag')`) — every upstream table
+(`std__sensor_reading` → ... → `cons__fct_rul_prediction`) is hardcoded
+`target_lag='DOWNSTREAM'` and follows the leaf's cadence automatically, so
+this is the only freshness knob you need. Snowflake's real minimum is 60
+seconds (not 30s); e.g. `--target-lag "1 minute"` for a fast demo. Confirmed
+live (2026-09-28): the whole 6-table chain refreshed on a
+`SCHEDULED`/`SUCCEEDED` ~45-50s cadence end-to-end. See
+`docs/designs/SH-72-parameterize-target-lag.md`.
+
 ```
 uv run python -m generator.full_data_generator --seed 42 --output-dir ./output
 ```

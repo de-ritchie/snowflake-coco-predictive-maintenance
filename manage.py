@@ -323,7 +323,17 @@ def run_post_setup() -> None:
         conn.close()
 
 
-def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
+def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str) -> None:
+    # DYNAMIC_TABLE_TARGET_LAG (SH-72) -- read by dbt_project.yml's
+    # `target_lag` var, consumed only by cons__fct_priority_score.sql (the
+    # pipeline's one leaf dynamic table; the other 5 are target_lag=
+    # DOWNSTREAM and need no env var). Set once here, before any of this
+    # function's three dbt-shelling calls (run_dbt_phase1(),
+    # run_dbt_training_dataset_rul(), run_dbt_phase2_and_test()) -- each
+    # inherits this process's env automatically via subprocess.run's default
+    # env=None passthrough, so no --vars flag is threaded through any of the
+    # three call sites individually.
+    os.environ["DYNAMIC_TABLE_TARGET_LAG"] = target_lag
     # role='ACCOUNTADMIN' overrides the connection's default login
     # role (SNOWCOMOTIVE_ROLE itself) -- required because 01_setup.sql creates
     # that role; logging in as a role that doesn't exist yet is a deadlock,
@@ -620,9 +630,16 @@ def up(
     now: str = typer.Option(
         str(date.today()), "--now", help="YYYY-MM-DD, anchors the generator's 3yr-back/8wk-forward window."
     ),
+    target_lag: str = typer.Option(
+        "1 hour",
+        "--target-lag",
+        help="Dynamic-table target_lag for cons__fct_priority_score (the pipeline's "
+        "one leaf table; upstream tables are target_lag=DOWNSTREAM and follow this "
+        "value automatically). Snowflake's real minimum is 60 seconds (SH-72).",
+    ),
 ) -> None:
     """Spin up env + generate/load the full dataset."""
-    run_up(seed, now, reuse_dataset_path)
+    run_up(seed, now, reuse_dataset_path, target_lag)
 
 
 @app.command("down")

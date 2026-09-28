@@ -1,4 +1,4 @@
-{{ config(materialized='dynamic_table', target_lag='1 hour', schema='cons', snowflake_warehouse='snowcomotive_wh', tags=['consumption'], immutable_where='reading_ts < DATEADD(hour, -1, CURRENT_TIMESTAMP())') }}
+{{ config(materialized='dynamic_table', target_lag='DOWNSTREAM', schema='cons', snowflake_warehouse='snowcomotive_wh', tags=['consumption'], immutable_where='reading_ts < DATEADD(hour, -1, CURRENT_TIMESTAMP())') }}
 
 -- Lean pass-through of STD.SENSOR_READING (FR-PL-05) -- no aggregation, no
 -- rolling windows, no normalization (those live in FEAST, out of scope here).
