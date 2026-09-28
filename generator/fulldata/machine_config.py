@@ -19,7 +19,7 @@ MACHINES: dict[str, dict] = {
         "product_id": "BRAKE_CALIPER",
         "variant": "EV",
         "throughput_units_per_hour": 15,
-        "weibull_lambda_hours": 650.0,
+        "weibull_lambda_hours": 350.0,
         "sensor_baselines": {
             "VIBRATION": (2.5, 0.3),
             "TEMPERATURE": (45.0, 3.0),
@@ -32,7 +32,7 @@ MACHINES: dict[str, dict] = {
         "product_id": "BRAKE_CALIPER",
         "variant": "EV",
         "throughput_units_per_hour": 15,
-        "weibull_lambda_hours": 600.0,
+        "weibull_lambda_hours": 350.0,
         "sensor_baselines": {
             "VIBRATION": (3.0, 0.4),
             "TEMPERATURE": (48.0, 3.0),
@@ -45,7 +45,7 @@ MACHINES: dict[str, dict] = {
         "product_id": "ENGINE_HEAD",
         "variant": "ICE",
         "throughput_units_per_hour": 10,
-        "weibull_lambda_hours": 750.0,
+        "weibull_lambda_hours": 350.0,
         "sensor_baselines": {
             "VIBRATION": (2.2, 0.3),
             "TEMPERATURE": (42.0, 3.0),

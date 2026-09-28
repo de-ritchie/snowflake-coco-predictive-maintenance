@@ -227,7 +227,7 @@ def run_simulation(
                             sensor_rows_historical.append(row)
 
                     if state.t_hours >= state.t_fail_hours:
-                        breakdown_duration = float(rng.uniform(2, 8))
+                        breakdown_duration = float(rng.uniform(10, 24))
                         end_ts = reading_ts + timedelta(hours=breakdown_duration)
                         failed_mode = state.mode
                         _restore_breakdown(rng, state, failed_mode)
