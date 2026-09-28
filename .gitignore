@@ -46,6 +46,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# SH-62: local dbt/rebuild session logs, not part of any story
+logs/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

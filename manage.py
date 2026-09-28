@@ -2,9 +2,11 @@
 -- docker-compose-style `up`/`down` wrapper around the numbered scripts/ SQL
 lifecycle files, plus a `demo` sub-command group for the live-tick drip-feed.
 
-Uses the `snow-coco` OAuth connection (see AGENTS.md "Local dev environment") via
-snowflake-connector-python directly -- no `snow` CLI dependency, so no repeated
-MFA passcodes; the OAuth token is cached locally via `keyring`.
+Uses a named Snowflake connection (defaults to `snow-coco`, but that profile does
+not exist in this environment's ~/.snowflake/connections.toml -- set
+SNOWFLAKE_CONNECTION_NAME=snow-co-cat-alyst, see AGENTS.md "Local dev environment")
+via snowflake-connector-python directly -- no `snow` CLI dependency, so no repeated
+MFA passcodes; the session token is cached locally via `keyring`.
 
 up:
   1. scripts/01_setup.sql        -- role, warehouse, database, schemas, stage
@@ -89,6 +91,18 @@ setup-jira (SH-53 / S-JIRA-1): standalone, NOT part of `up` -- provisions the
   snowcomotive_role connector session, binding the token as a SQL session
   variable (`SET jira_api_token = ...`) so the literal token value never
   appears in the .sql file, in this script's own print()s, or on disk.
+
+authorize-jira-mcp (SH-62 / S-STRETCH-2): standalone, NOT part of `up` --
+  read-only existence/enabled check for the Jira MCP server
+  (jira_mcp_integration/snowcomotive.cons.jira_mcp_server, created by
+  scripts/07c_setup_jira_mcp.sql, run separately -- see that script's
+  header), then prints pointers to the UI flow that actually authorizes it.
+  SH-62 amendment (2026-09-28): scripted OAuth via SYSTEM$START_USER_OAUTH_
+  FLOW/SYSTEM$FINISH_OAUTH_FLOW was abandoned after repeated live failures
+  from a CLI/script context ("Invalid request to complete OAuth flow" /
+  "OAuth state parameter is not present") -- Snowsight's Agent UI and
+  Snowflake CoWork's Connectors UI both worked cleanly on the first real
+  attempt, so authorization now happens there, not from this command.
 
 demo (SH-41 / S-DATA-9): no CREATE TASK/EXECUTE TASK -- direct synchronous
 PUT + COPY INTO for a single live_ticks/ file per invocation, deliberately
@@ -310,7 +324,7 @@ def run_post_setup() -> None:
 
 
 def run_up(seed: int, now: str, reuse_dataset_path: str | None) -> None:
-    # role='ACCOUNTADMIN' overrides the snow-coco connection's default login
+    # role='ACCOUNTADMIN' overrides the connection's default login
     # role (SNOWCOMOTIVE_ROLE itself) -- required because 01_setup.sql creates
     # that role; logging in as a role that doesn't exist yet is a deadlock,
     # hit for real after a full manage.py down (2026-08-30).
@@ -398,6 +412,46 @@ def run_setup_jira(token: str) -> None:
     finally:
         conn.close()
     print("--- setup-jira complete ---")
+
+
+def run_authorize_jira_mcp() -> None:
+    """SH-62 amendment (2026-09-28): read-only existence/status check only --
+    no OAuth flow is scripted from here anymore. SYSTEM$START_USER_OAUTH_FLOW/
+    SYSTEM$FINISH_OAUTH_FLOW proved unreliable from a CLI/script context
+    across many live attempts this session ("Invalid request to complete
+    OAuth flow" / "OAuth state parameter is not present" regardless of
+    encoding, timing, same-session handling, or role), while Snowsight's own
+    Agent UI and Snowflake CoWork's Connectors UI both worked cleanly on the
+    first real attempt. This command now only confirms the
+    jira_mcp_integration/jira_mcp_server objects exist and are enabled, then
+    prints instructions pointing the human at the UI flow."""
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        cur.execute("SHOW INTEGRATIONS LIKE 'jira_mcp_integration'")
+        integration_rows = cur.fetchall()
+        cur.execute("SHOW EXTERNAL MCP SERVERS LIKE 'jira_mcp_server' IN SCHEMA snowcomotive.cons")
+        server_rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not integration_rows:
+        print("jira_mcp_integration not found -- run scripts/07c_setup_jira_mcp.sql first.")
+        return
+    if not server_rows:
+        print("snowcomotive.cons.jira_mcp_server not found -- run scripts/07c_setup_jira_mcp.sql first.")
+        return
+
+    print("jira_mcp_integration and snowcomotive.cons.jira_mcp_server both exist.\n")
+    print("Scripted OAuth (SYSTEM$START_USER_OAUTH_FLOW/SYSTEM$FINISH_OAUTH_FLOW) was")
+    print("abandoned after repeated live failures from a CLI/script context. Authorize")
+    print("(or re-authorize) this connector via one of these UIs instead:\n")
+    print("  Option A -- Snowsight Agent UI:")
+    print("    AI & ML -> Agents -> select maintenance_supervisor_agent -> MCP Connectors tab -> Connect\n")
+    print("  Option B -- Snowflake CoWork:")
+    print("    Open Snowflake CoWork -> Connectors/Sources panel -> Connect")
+    print("    (this is the flow already live-verified working, this session)")
+
 
 
 def run_down() -> None:
@@ -599,6 +653,19 @@ def post_setup() -> None:
     without re-running the full data/training pipeline -- use this to redeploy
     after Streamlit app code or agent-DDL changes."""
     run_post_setup()
+
+
+@app.command("authorize-jira-mcp")
+def authorize_jira_mcp() -> None:
+    """Read-only existence/status check for the Jira MCP server (SH-62
+    amendment, 2026-09-28). Confirms jira_mcp_integration and
+    snowcomotive.cons.jira_mcp_server both exist, then prints pointers to
+    the UI flow that actually authorizes the connector -- Snowsight's Agent
+    UI or Snowflake CoWork's Connectors UI. No OAuth flow is scripted from
+    here; SYSTEM$START_USER_OAUTH_FLOW/SYSTEM$FINISH_OAUTH_FLOW were
+    abandoned after repeated live failures from a CLI/script context.
+    """
+    run_authorize_jira_mcp()
 
 
 @demo_app.command("inject-tick")

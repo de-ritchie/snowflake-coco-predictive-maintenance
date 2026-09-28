@@ -132,7 +132,7 @@ mv.export(export_mode=ExportMode.FULL)
 # do NOT expose a volatility field on this account -- do not use them as the check.
 ```
 
-Also re-confirm the `SET_MODULE_FUNCTIONS_VOLATILITY_FROM_MANIFEST` platform capability is enabled on whichever account this actually runs on (`PlatformCapabilities.get_instance(session).is_set_module_functions_volatility_from_manifest()`) — SH-51 confirmed it `True` on `IQWYCFG-OAC98123`, but per Module 5 §2's own prerequisite note, this must not be assumed carried over silently if the active connection differs. **Note**: the current active connection per this session is `snow-co-cat-alyst` (account `IQWYCFG-OAC98123` per SH-51's own header) — same account SH-51 already verified, but `Developer-agent` should still run the check explicitly on the real model rather than skip it as "already known."
+Also re-confirm the `SET_MODULE_FUNCTIONS_VOLATILITY_FROM_MANIFEST` platform capability is enabled on whichever account this actually runs on (`PlatformCapabilities.get_instance(session).is_set_module_functions_volatility_from_manifest()`) — SH-51 confirmed it `True` on `<account-identifier>`, but per Module 5 §2's own prerequisite note, this must not be assumed carried over silently if the active connection differs. **Note**: the current active connection per this session is `snow-co-cat-alyst` (account `<account-identifier>` per SH-51's own header) — same account SH-51 already verified, but `Developer-agent` should still run the check explicitly on the real model rather than skip it as "already known."
 
 Record the actual `MANIFEST.yml` finding (pass/fail, exact field values) in this design doc's own results section once run — same discipline SH-51 used.
 

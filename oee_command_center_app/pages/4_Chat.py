@@ -3,7 +3,9 @@ Cortex Agent the active persona maps to, via the Cortex Agents `agent:run`
 REST API. See docs/designs/SH-27-28-30-31-32-33-semantic-view-agent-chat.md
 §7 for the original frozen design and docs/designs/SH-54-55-56-59-60-52-
 persona-suite.md §6/§7 for the persona-awareness, live tool introspection,
-and ticket-confirmation UI added here.
+and ticket-confirmation UI added here. See
+docs/designs/SH-62-mcp-swap-jira.md §8 for the MCP-server introspection and
+MCP-real ticket-confirmation rendering added here (SH-62).
 
 Chat history is keyed per-persona (`st.session_state.chat_histories[persona]`),
 not one shared list -- switching personas must not leak one persona's
@@ -42,15 +44,14 @@ REQUEST_TIMEOUT_MS = 60000
 TOOL_DISPLAY = {
     "Analyst": "Ask about machine health, anomalies, OEE, orders, inventory, and priority/RUL.",
     "explain_prediction": "Explain why a specific prediction was flagged (feature-level breakdown).",
-    "create_jira_ticket": "File a maintenance ticket for a machine.",
-    "request_jira_ticket": "Escalate/request maintenance attention on a machine.",
 }
 
-# Tool names whose tool_result content this page renders a distinct
-# confirmation for (SH-52, §7) -- both point at the same underlying
-# SP_CREATE_JIRA_TICKET procedure, just under different tool_spec names
-# per persona (Module 7 §3's "same API, different framing").
-TICKET_TOOL_NAMES = {"create_jira_ticket", "request_jira_ticket"}
+# Companion to TOOL_DISPLAY, for mcp_servers: attachments (SH-62, §8.1) --
+# a separate top-level key in DESCRIBE AGENT's agent_spec JSON (mcp_servers,
+# not tools), so it needs its own display-name lookup.
+MCP_SERVER_DISPLAY = {
+    "snowcomotive.cons.jira_mcp_server": "Create a real Jira ticket, or look up recent tickets for a machine, via the live Jira connector.",
+}
 
 
 @st.cache_data(ttl=300)
@@ -89,36 +90,71 @@ def get_agent_tool_names(agent_name: str) -> list[str]:
     return [tool["tool_spec"]["name"] for tool in spec.get("tools", [])]
 
 
+@st.cache_data(ttl=300)
+def get_agent_mcp_server_names(agent_name: str) -> list[str]:
+    """Companion to get_agent_tool_names() (SH-62, §8.1) -- MCP servers are
+    a separate top-level key in DESCRIBE AGENT's agent_spec JSON
+    (mcp_servers, not tools), so they need their own extraction, or the
+    capability caption silently omits any MCP-backed capability entirely.
+
+    Live-verified shape (design doc §9's "what CAN and already WAS
+    live-verified" list): the `mcp_servers` key is confirmed present and
+    correctly shaped in `DESCRIBE AGENT`'s `agent_spec` JSON output, same
+    `mcp_servers: - server_spec: name: "..."` shape as the YAML passed to
+    `FROM SPECIFICATION`.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(f"DESCRIBE AGENT {AGENT_DATABASE}.{AGENT_SCHEMA}.{agent_name}")
+        row = cur.fetchone()
+        columns = [d[0] for d in cur.description]
+    finally:
+        cur.close()
+    spec = json.loads(row[columns.index("agent_spec")])
+    return [server["server_spec"]["name"] for server in spec.get("mcp_servers", [])]
+
+
 def _extract_text(content: list[dict]) -> str:
     """Concatenate every text content item in the agent's response.
     Tool-call content items (Analyst's generated SQL) are not deeply
-    rendered here -- ticket tool results get their own confirmation UI via
-    _extract_ticket_results() instead."""
+    rendered here -- MCP-real ticket tool results get their own
+    confirmation UI via _extract_mcp_ticket_results() instead."""
     return "\n\n".join(item["text"] for item in content if item.get("type") == "text")
 
 
-def _extract_ticket_results(content: list[dict]) -> list[dict]:
-    """Scans the response's tool_result content items for create_jira_ticket/
-    request_jira_ticket results and returns the decoded procedure response
-    (`{"status": ..., "ticket_id": ..., "ticket_url": ...}`) for each.
+# --- MCP-real ticket-confirmation path (SH-62, §8.2) --------------------
+# Structurally its own path -- rendering here does not fabricate a
+# ticket_url when the tool didn't actually return one.
+#
+# FLAGGED, NOT LIVE-CONFIRMED (design doc §9 item 2/item 5): the real
+# Atlassian-hosted MCP server's actual tool name(s) for ticket creation/
+# search, and the exact tool_result content-item shape for an
+# mcp_servers:-attached server (as opposed to a `generic`-type custom
+# tool), were not live-verified in the design session -- only DDL/agent-
+# attachment plumbing was. This placeholder set is intentionally empty
+# until a human completes `manage.py authorize-jira-mcp` (§4) and the
+# real tool name(s) are observed live via a `DESCRIBE AGENT`/`agent:run`
+# call or Snowsight's agent tool-testing UI -- see this story's report for
+# the exact manual-verification step required before this set can be
+# populated and this rendering path becomes reachable.
+MCP_TICKET_TOOL_NAMES: set[str] = set()
 
-    Live-verified shape (this session, against snow-co-cat-alyst-
-    snowcomotive, via maintenance_supervisor_agent/create_jira_ticket and
-    production_planner_agent/request_jira_ticket): a `tool_result`-typed
-    content item has `tool_result.name` (the tool name) and
-    `tool_result.content`, a list of `{"type": "json", "json": {...}}`
-    items whose `json.result` field is itself a JSON-*encoded string* (not
-    a nested object) holding the procedure's actual `{"status", "ticket_id",
-    "ticket_url"}` response -- must be json.loads()'d again to reach it.
-    This differs from the design doc's illustrative sketch (§9 item 2's
-    flagged assumption), which is why this second json.loads() is needed.
-    """
+
+def _extract_mcp_ticket_results(content: list[dict]) -> list[dict]:
+    """Scans the response's tool_result content items for MCP-real ticket
+    results (MCP_TICKET_TOOL_NAMES). Uses the same double-json.loads()
+    defensive pattern as a starting point, but this is NOT guaranteed to
+    match the real MCP tool-result shape (design doc §9 item 5) -- must be
+    reconciled against a live response once OAuth consent (§4) is
+    complete and MCP_TICKET_TOOL_NAMES above is populated with the real
+    tool name(s)."""
     results = []
     for item in content:
         if item.get("type") != "tool_result":
             continue
         tool_result = item.get("tool_result", {})
-        if tool_result.get("name") not in TICKET_TOOL_NAMES:
+        if tool_result.get("name") not in MCP_TICKET_TOOL_NAMES:
             continue
         for result_item in tool_result.get("content", []):
             raw = result_item.get("json", {}).get("result")
@@ -176,22 +212,16 @@ def call_agent(agent_run_path: str, messages: list[dict]) -> list[dict]:
     return data.get("content", [])
 
 
-def render_ticket_confirmation(ticket_result: dict) -> None:
-    """Renders a distinct confirmation for a create_jira_ticket/
-    request_jira_ticket result, independent of how the agent's own prose
-    worded it (SH-52, §7). `ticket_url` is always null per SH-58's
-    invariant -- never rendered as a link."""
-    status = ticket_result.get("status")
-    ticket_id = ticket_result.get("ticket_id")
-    if status == "CREATED":
-        st.success(f"Ticket {ticket_id} created.")
-    elif status == "ALREADY_OPEN":
-        st.info(f"Machine already has an open ticket: {ticket_id}.")
-    elif status == "RECENTLY_CLOSED":
-        st.info(
-            f"A ticket for this machine was recently closed: {ticket_id}. "
-            "Filing a new one may be worth reconsidering."
-        )
+def render_mcp_ticket_confirmation(ticket_result: dict) -> None:
+    """Renders a distinct confirmation for a real, MCP-backed Jira ticket
+    result (SH-62, §8.2). Unlike the now-retired simulated store, a real
+    MCP ticket's `ticket_url` is a real, valid Jira browse link and IS
+    rendered as a clickable link when present."""
+    ticket_key = ticket_result.get("ticket_id") or ticket_result.get("key")
+    ticket_url = ticket_result.get("ticket_url")
+    st.success(f"Real Jira ticket: {ticket_key}")
+    if ticket_url:
+        st.markdown(f"[View in Jira]({ticket_url})")
 
 
 render_sidebar()
@@ -207,6 +237,8 @@ with clear_col:
 st.caption(f"Chatting as {PERSONAS[persona]['label']} -- {PERSONAS[persona]['blurb']}")
 for tool_name in get_agent_tool_names(agent_name):
     st.caption(f"• {TOOL_DISPLAY.get(tool_name, tool_name)}")
+for server_name in get_agent_mcp_server_names(agent_name):
+    st.caption(f"• {MCP_SERVER_DISPLAY.get(server_name, server_name)}")
 
 # Chat history is keyed by persona, not a single flat list -- switching
 # personas must not leak one persona's conversation into another's, since
@@ -220,8 +252,8 @@ chat_history = st.session_state.chat_histories.setdefault(persona, [])
 for message in chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["text"])
-        for ticket_result in message.get("ticket_results", []):
-            render_ticket_confirmation(ticket_result)
+        for mcp_ticket_result in message.get("mcp_ticket_results", []):
+            render_mcp_ticket_confirmation(mcp_ticket_result)
 
 user_input = st.chat_input("Ask a question...")
 if user_input:
@@ -242,10 +274,14 @@ if user_input:
             st.error(f"Agent request failed: {exc}")
         else:
             response_text = _extract_text(content)
-            ticket_results = _extract_ticket_results(content)
+            mcp_ticket_results = _extract_mcp_ticket_results(content)
             st.markdown(response_text)
-            for ticket_result in ticket_results:
-                render_ticket_confirmation(ticket_result)
+            for mcp_ticket_result in mcp_ticket_results:
+                render_mcp_ticket_confirmation(mcp_ticket_result)
             chat_history.append(
-                {"role": "assistant", "text": response_text, "ticket_results": ticket_results}
+                {
+                    "role": "assistant",
+                    "text": response_text,
+                    "mcp_ticket_results": mcp_ticket_results,
+                }
             )
