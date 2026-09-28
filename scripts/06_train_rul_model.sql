@@ -61,7 +61,16 @@ def train(session):
         "any_anomaly_flagged_72h", "min_anomaly_score_72h", "pct_anomalous_ticks_72h",
     ]
 
-    train_pdf = train_df.select(feature_cols + ["y_lower", "y_upper"]).to_pandas()
+    # SH-73: explicit stable sort before to_pandas() -- same non-determinism
+    # fix as 05_train_models.sql's isolation forest training (Snowflake does
+    # not guarantee row order for a SELECT without ORDER BY). Sorted by
+    # equipment_id, cycle_end_ts (this table's own stable per-row key --
+    # reading_ts isn't selected here, see feat.* EXCLUDE above).
+    train_pdf = (
+        train_df.sort("equipment_id", "cycle_end_ts")
+        .select(feature_cols + ["y_lower", "y_upper"])
+        .to_pandas()
+    )
     train_pdf.columns = [c.lower() for c in train_pdf.columns]
 
     # Boolean columns must be cast to numeric before entering the DMatrix --
@@ -80,6 +89,8 @@ def train(session):
         "aft_loss_distribution_scale": 1.0,
         "tree_method": "hist",
         "max_depth": 4,
+        "seed": 42,  # SH-73: was previously unset -- combined with the sort
+        # fix above, makes this model's training fully reproducible run-to-run.
     }
     booster = xgb.train(params, dtrain, num_boost_round=100)
 

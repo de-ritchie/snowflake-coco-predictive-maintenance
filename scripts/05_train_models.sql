@@ -77,7 +77,16 @@ def train(session):
         "temperature_z", "temperature_rolling_1h_z", "temperature_rolling_8h_z", "temperature_rolling_24h_z", "temperature_rolling_7d_z",
         "rpm_z", "rpm_rolling_1h_z", "rpm_rolling_8h_z", "rpm_rolling_24h_z", "rpm_rolling_7d_z",
     ]
-    train_pdf = train_df.select(sensor_feature_cols).to_pandas()
+    # SH-73: explicit stable sort before to_pandas() -- Snowflake does not
+    # guarantee row order for a SELECT without ORDER BY, especially across a
+    # parallel multi-partition scan. IsolationForest's random_state=42 only
+    # fixes the RNG *stream*; bootstrap sampling/tree partitioning still
+    # operate on row *position* in the input array, so an unordered pull
+    # produced a different fitted forest on every run despite the fixed seed
+    # (confirmed empirically: identical code, two runs, catch_rate_pct 68.75%
+    # vs 56.25%). Sorting by equipment_id, reading_ts makes the input array
+    # order -- and therefore the fitted model -- reproducible run-to-run.
+    train_pdf = train_df.sort("equipment_id", "reading_ts").select(sensor_feature_cols).to_pandas()
 
     model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
     model.fit(train_pdf)

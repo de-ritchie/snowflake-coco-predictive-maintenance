@@ -11,7 +11,7 @@ import numpy as np
 
 from generator.fulldata.sim_calendar import BACKGROUND_PLANT_DRAW_PROBABILITY
 
-PM_DUE_INTERVAL_DAYS = 30
+PM_DUE_INTERVAL_DAYS = 60
 
 
 def background_plant_draw(rng: np.random.Generator, p: float = BACKGROUND_PLANT_DRAW_PROBABILITY) -> bool:
