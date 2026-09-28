@@ -1,7 +1,7 @@
 predictive_maintenance_dbt:
   outputs:
     dev:
-      account: IQWYCFG-OAC98123
+      account: TXGARWX-WGC57712
       authenticator: oauth_authorization_code
       database: SNOWCOMOTIVE
       role: SNOWCOMOTIVE_ROLE

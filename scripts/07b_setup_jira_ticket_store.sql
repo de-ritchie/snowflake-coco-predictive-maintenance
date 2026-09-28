@@ -5,6 +5,12 @@
 -- Jira: SH-58
 -- Status: Built (v1)
 --
+-- RETIRED (SH-62 amendment, 2026-09-28) — see docs/designs/SH-62-mcp-swap-
+-- jira.md §14 and scripts/07d_retire_simulated_ticket_store.sql. This file
+-- is left in place as historical record of the original design and is
+-- never run again; its objects no longer exist live once
+-- 07d_retire_simulated_ticket_store.sql has been run.
+--
 -- Pivot from SH-53's real-Jira-REST design: CREATE EXTERNAL ACCESS INTEGRATION
 -- is permanently blocked on this Trial-edition account (confirmed 3x live,
 -- see design doc's pivot rationale), so this creates a native table instead

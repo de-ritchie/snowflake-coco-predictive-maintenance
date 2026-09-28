@@ -136,7 +136,7 @@ Per the user's explicit direction in this brainstorm: **do not decide now** wher
 
 ---
 
-## 7. Results (run 2026-09-24, `Developer-agent`, account `IQWYCFG-OAC98123` / connection `snow-co-cat-alyst`)
+## 7. Results (run 2026-09-24, `Developer-agent`, account `<account-identifier>` / connection `snow-co-cat-alyst`)
 
 Executed via `scripts/spikes/sh51_xgboost_registry_spike.py`. Full captured output: see the log this script produces when re-run (not itself committed — the script is the tracked artifact; re-running reproduces the evidence below).
 

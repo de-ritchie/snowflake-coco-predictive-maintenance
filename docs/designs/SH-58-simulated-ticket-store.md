@@ -4,7 +4,7 @@ Status: **Design frozen** (brainstorm confirmed by user, 2026-09-27) → `Develo
 Epic: EPIC-JIRA | Story: SH-58 (S-JIRA-2: "SP_CREATE_JIRA_TICKET procedure")
 Traces to: [docs/04-7-LLD.md](../04-7-LLD.md) §3 (tool spec/contract), [docs/04-9-LLD.md](../04-9-LLD.md) §1/§2 (field mapping, duplicate-check logic), [docs/designs/SH-53-jira-sm-provision-auth.md](SH-53-jira-sm-provision-auth.md) (superseded auth path, see §8)
 
-**Pivot reason**: Live testing (2026-09-27, three independent trials — `snowcomotive_role`, `ACCOUNTADMIN` in the existing DB, `ACCOUNTADMIN` in a brand-new DB) conclusively proved `CREATE EXTERNAL ACCESS INTEGRATION` is blocked account-wide on this Trial-edition account (`IQWYCFG-OAC98123`), regardless of role/ownership/database — no stored procedure can make any outbound network call. **Decision: use a native Snowflake table instead of a real Jira REST call.** Postgres/EAI workarounds and account upgrade are explicitly out of scope — not revisited.
+**Pivot reason**: Live testing (2026-09-27, three independent trials — `snowcomotive_role`, `ACCOUNTADMIN` in the existing DB, `ACCOUNTADMIN` in a brand-new DB) conclusively proved `CREATE EXTERNAL ACCESS INTEGRATION` is blocked account-wide on this Trial-edition account (`<account-identifier>`), regardless of role/ownership/database — no stored procedure can make any outbound network call. **Decision: use a native Snowflake table instead of a real Jira REST call.** Postgres/EAI workarounds and account upgrade are explicitly out of scope — not revisited.
 
 ---
 
