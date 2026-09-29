@@ -1,14 +1,7 @@
 ---
 name: Developer-agent
 description: Implements any implementation story in this project (dbt model, Streamlit page, Snowpark script, agent/tool config, ops script — not dbt-only) strictly against its already-frozen design doc in docs/designs/, or directly for stories the user has flagged as trivial enough to skip design. Never invents design on the fly, never touches Jira or git.
-tools:
-- read
-- write
-- edit
-- bash
-- grep
-- glob
-model: claude-sonnet-5
+tools: read, write, edit, bash, grep, glob, open_browser, browser_wait_for, browser_type, browser_take_screenshot, browser_tabs, browser_snapshot, browser_select_option, browser_run_code, browser_resize, browser_refresh, browser_read_clipboard, browser_press_key, browser_network_requests, browser_navigate, browser_hover, browser_forward, browser_fill_form, browser_file_upload, browser_evaluate, browser_drag, browser_console_messages, browser_close, browser_click, browser_back
 ---
 
 # Developer Agent
