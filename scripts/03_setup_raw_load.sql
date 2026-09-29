@@ -41,6 +41,14 @@ COPY INTO snowcomotive.raw.sensor_reading
   MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
   ON_ERROR = 'ABORT_STATEMENT';
 
+-- insert_time has no column DEFAULT (Snowflake's ALTER TABLE ADD COLUMN
+-- doesn't support expression defaults) -- every loader stamps it explicitly
+-- right after its own COPY INTO instead. WHERE insert_time IS NULL scopes
+-- this to rows this exact COPY INTO just landed (re-running this script
+-- against already-loaded files is a no-op per COPY INTO's own dedup, so
+-- this UPDATE only ever touches genuinely new rows).
+UPDATE snowcomotive.raw.sensor_reading SET insert_time = CURRENT_TIMESTAMP() WHERE insert_time IS NULL;
+
 COPY INTO snowcomotive.raw.cmms_log
   FROM @snowcomotive.raw.landing_stage/cmms_log/
   FILE_FORMAT = (TYPE = PARQUET)

@@ -551,6 +551,13 @@ def inject_next_tick() -> None:
         )
         rows = cur.fetchall()
         columns = [c[0] for c in cur.description]
+        # insert_time has no column DEFAULT (Snowflake's ALTER TABLE ADD
+        # COLUMN doesn't support expression defaults) -- stamp it explicitly
+        # right after COPY INTO. This is what the frozen region on
+        # std/cons__fct_sensor_reading is keyed off (not reading_ts), so a
+        # tick injected right now is always active/non-frozen immediately,
+        # regardless of what date it simulates (SH-72 follow-up, 2026-09-29).
+        cur.execute("UPDATE snowcomotive.raw.sensor_reading SET insert_time = CURRENT_TIMESTAMP() WHERE insert_time IS NULL")
     finally:
         conn.close()
 
@@ -612,6 +619,9 @@ def inject_next_batch() -> None:
         )
         rows = cur.fetchall()
         columns = [c[0] for c in cur.description]
+        # insert_time has no column DEFAULT -- stamp it explicitly, same as
+        # inject_next_tick() (SH-72 follow-up, 2026-09-29).
+        cur.execute("UPDATE snowcomotive.raw.sensor_reading SET insert_time = CURRENT_TIMESTAMP() WHERE insert_time IS NULL")
     finally:
         conn.close()
 

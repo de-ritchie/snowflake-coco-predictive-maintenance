@@ -36,7 +36,26 @@ CREATE TABLE IF NOT EXISTS snowcomotive.raw.sensor_reading (
   equipment_id STRING,
   reading_ts TIMESTAMP_NTZ,
   sensor_type STRING,
-  reading_value FLOAT
+  reading_value FLOAT,
+  -- Real wall-clock load time. No column DEFAULT (Snowflake's ALTER TABLE
+  -- ADD COLUMN doesn't support expression defaults like CURRENT_TIMESTAMP(),
+  -- confirmed empirically, 2026-09-29 -- only CREATE TABLE column defs do,
+  -- and this table must stay ALTERable for environments that already
+  -- exist). Every loader (03_setup_raw_load.sql's bulk COPY INTO, and
+  -- manage.py demo inject-tick/inject-batch's PUT+COPY INTO) explicitly
+  -- runs an UPDATE ... SET insert_time = CURRENT_TIMESTAMP() WHERE
+  -- insert_time IS NULL immediately after its COPY INTO instead.
+  --
+  -- Downstream dynamic tables' frozen region is keyed off THIS column, not
+  -- reading_ts -- reading_ts is simulated event time that can be
+  -- arbitrarily far in the past relative to real time (the live-tick
+  -- generator replays historical dates), so a reading_ts-relative frozen
+  -- cutoff permanently freezes out newly injected ticks once enough real
+  -- time passes after `manage.py up`. insert_time tracks genuine load
+  -- recency instead, so newly loaded rows are always active (non-frozen)
+  -- immediately after loading, regardless of what date they simulate.
+  -- Confirmed live, 2026-09-29.
+  insert_time TIMESTAMP_NTZ
 );
 
 CREATE TABLE IF NOT EXISTS snowcomotive.raw.cmms_log (
