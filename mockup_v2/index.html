@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SnowComotive — OEE Command Center (mockup v2)</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> SnowComotive</div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Active Persona</div>
+      <div class="persona-indicator" id="persona-indicator" style="display:none;"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Navigation</div>
+      <div class="sidebar-nav">
+        <button data-page="choose_persona" class="active">
+          <span class="nav-icon">&#9632;</span> Choose Persona
+        </button>
+        <button data-page="plant_dashboard">
+          <span class="nav-icon">&#9670;</span> Plant Overview
+        </button>
+        <button data-page="production">
+          <span class="nav-icon">&#9654;</span> Production Planning
+        </button>
+        <button data-page="diagnostics">
+          <span class="nav-icon">&#9660;</span> Risk &amp; Diagnostics
+        </button>
+        <button data-page="chat">
+          <span class="nav-icon">&#9679;</span> Chat
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      Mockup only — no live Snowflake connection.<br>
+      Data is hand-rolled in <code>data.js</code>.
+    </div>
+  </aside>
+
+  <div class="main">
+
+    <!-- Page 0: Choose Persona -->
+    <section class="page active" id="page-choose_persona">
+      <div style="text-align:center; padding-top:30px;">
+        <h1 class="page-title" style="font-size:26px;">SnowComotive OEE Command Center</h1>
+        <p class="page-sub" style="font-size:15px; max-width:600px; margin:0 auto 30px;">Predictive Maintenance &amp; OEE — choose your persona to get started.</p>
+      </div>
+      <div class="persona-grid" id="persona-cards"></div>
+    </section>
+
+    <!-- Page 1: Plant Dashboard -->
+    <section class="page" id="page-plant_dashboard">
+      <h1 class="page-title">Plant Overview</h1>
+      <p class="page-sub">Plant Manager — plant-wide OEE, financial risk, forecast availability, and asset health</p>
+
+      <!-- Global filters: line selector + weekly/monthly granularity -->
+      <div class="global-filter-bar" id="plant-filter-bar">
+        <div class="line-selector" id="plant-line-selector"></div>
+        <div id="plant-granularity-toggle"></div>
+      </div>
+
+      <!-- Headline band: KPI cards + Financial Exposure -->
+      <div class="headline-band">
+        <!-- §A: OEE / Availability / Performance / Quality KPI cards -->
+        <div class="grid-kpi" id="oee-kpis"></div>
+
+        <!-- §C: Financial Exposure (card-based) — promoted above Asset Risk -->
+        <div class="section-title">Financial Exposure</div>
+        <div id="financial-risk"></div>
+      </div>
+
+      <!-- §B: Asset Risk Summary -->
+      <div class="section-title">Asset Risk Summary</div>
+      <div class="asset-risk-list" id="asset-risk-cards"></div>
+
+      <!-- §D: Historical OEE & Predicted Availability -->
+      <div class="section-title">Historical OEE &amp; Predicted Availability</div>
+      <p class="section-caption">Left: trailing OEE trend per line. Right: 8-week predicted availability vs. order demand. Red-shaded windows indicate risk periods.</p>
+      <div class="grid-2">
+        <div class="card">
+          <div class="chart-wrap" id="oee-trend-chart"></div>
+          <div class="legend" id="oee-trend-legend"></div>
+        </div>
+        <div class="card">
+          <div class="chart-wrap" id="forecast-chart"></div>
+          <div class="legend" id="forecast-legend"></div>
+        </div>
+      </div>
+      <div id="forecast-callouts"></div>
+      <p class="caveat">Predicted failure week is directional, not calibrated (concordance index 0.94, median absolute error ~182h on 5 test rows). Calendar dates should be treated as indicative.</p>
+    </section>
+
+    <!-- Page 2: Production -->
+    <section class="page" id="page-production">
+      <h1 class="page-title">Production Planning</h1>
+      <p class="page-sub">Production Planner — demand trends, capacity gaps, and machine health impact on delivery</p>
+
+      <!-- Row 1: Batch Gap (left) + Machine Health (right) -->
+      <div class="section-title">Capacity &amp; Health</div>
+      <div class="grid-2">
+        <div>
+          <div class="section-title" style="margin-top:0;">Production Batch Gap</div>
+          <p class="section-caption">Predicted RUL minus required run-hours (next 4 wk). Positive = surplus, negative = shortfall.</p>
+          <div class="card" id="batch-gap"></div>
+        </div>
+        <div>
+          <div class="section-title" style="margin-top:0;">Machine Health Impact</div>
+          <p class="section-caption">Sorted by demand pressure — machines to watch for delivery risk.</p>
+          <div class="asset-risk-list" id="health-impact-cards"></div>
+        </div>
+      </div>
+
+      <!-- Row 2: Order Trend (left) + Future Orders (right) -->
+      <div class="section-title">Demand</div>
+      <div class="grid-2">
+        <div>
+          <div class="section-title" style="margin-top:0;">Order Trend (trailing 12 weeks)</div>
+          <div class="card">
+            <div class="chart-wrap" id="order-trend-chart"></div>
+            <div class="legend" id="order-trend-legend"></div>
+          </div>
+        </div>
+        <div>
+          <div class="section-title" style="margin-top:0;">Demand Look-Ahead (next 4 weeks)</div>
+          <div class="card" id="future-orders"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Page 3: Diagnostics -->
+    <section class="page" id="page-diagnostics">
+      <h1 class="page-title">Risk &amp; Diagnostics</h1>
+      <p class="page-sub">Maintenance Supervisor — sensor diagnostics per line, priority risk scoring</p>
+
+      <div class="section-title">Filter by Line</div>
+      <div class="line-selector" id="line-selector"></div>
+
+      <div class="section-title">Priority Risk Score</div>
+      <p class="section-caption">Ranked by composite score: 0.40 &times; RUL urgency + 0.25 &times; demand pressure + 0.20 &times; inventory buffer + 0.15 &times; spare part readiness</p>
+      <div class="card table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Machine</th>
+              <th>Priority</th>
+              <th>RUL Urgency</th>
+              <th>Demand Press.</th>
+              <th>Inv. Buffer</th>
+              <th>Spare Parts</th>
+              <th>Factor Breakdown</th>
+              <th>Survives Demand?</th>
+            </tr>
+          </thead>
+          <tbody id="priority-table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:24px;">Sensor Diagnostics</div>
+      <p class="section-caption">Per machine: vibration, temperature, RPM readings (last ~6h, 15-min cadence). Click a priority row above to expand.</p>
+      <div id="sensor-diagnostics"></div>
+    </section>
+
+    <!-- Page 4: Chat -->
+    <section class="page" id="page-chat">
+      <h1 class="page-title">Agent Chat — <span id="chat-persona-name"></span></h1>
+      <p class="page-sub">Persona-aware agent chat with tool-call transparency</p>
+      <div class="chat-layout">
+        <!-- Left: chat history panel -->
+        <div class="chat-history-panel">
+          <button class="chat-new-btn" id="chat-new-btn">+ New Chat</button>
+          <div class="chat-history-list" id="chat-history-list"></div>
+        </div>
+        <!-- Center: chat panel with tool bar above input -->
+        <div class="chat-panel">
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-tool-bar" id="chat-tool-bar"></div>
+          <div class="chat-input-row">
+            <input type="text" placeholder="Ask about machine health, RUL, OEE, priority..." disabled />
+            <button class="step-btn" id="chat-step-btn">Replay scripted demo</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="shared.js"></script>
+<script src="page_choose_persona.js"></script>
+<script src="page_plant_dashboard.js"></script>
+<script src="page_production.js"></script>
+<script src="page_diagnostics.js"></script>
+<script src="page_chat.js"></script>
+</body>
+</html>
