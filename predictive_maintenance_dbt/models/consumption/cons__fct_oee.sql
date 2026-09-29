@@ -30,6 +30,7 @@ calendar_weeks AS (
         COUNT(*) AS working_days
     FROM {{ ref('std__calendar') }}
     WHERE is_working_day
+      AND DATE_TRUNC('week', calendar_date) <= DATE_TRUNC('week', CURRENT_DATE())
     GROUP BY DATE_TRUNC('week', calendar_date)
 ),
 

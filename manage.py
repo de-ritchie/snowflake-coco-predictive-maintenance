@@ -295,6 +295,27 @@ def _put_streamlit_app_files(cur) -> None:
         if staged_name not in local_page_names:
             print(f"  Removing stale stage file: pages/{staged_name}")
             cur.execute(f"REMOVE @snowcomotive.cons.streamlit_stage/pages/{staged_name}")
+    # assets/ (logo.svg, logo_icon.svg) -- streamlit_app.py's st.logo() call
+    # resolves these via a local filesystem path (_ASSETS_DIR), so they must
+    # be staged too or st.logo() raises StreamlitAPIException at runtime.
+    # Found and fixed live, 2026-09-29, after exactly this happened.
+    assets_dir = STREAMLIT_APP_DIR / "assets"
+    if assets_dir.is_dir():
+        local_asset_names = set()
+        for asset_file in sorted(assets_dir.glob("*")):
+            if not asset_file.is_file():
+                continue
+            local_asset_names.add(asset_file.name)
+            cur.execute(
+                f"PUT 'file://{asset_file}' @snowcomotive.cons.streamlit_stage/assets/ "
+                "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+            )
+        cur.execute("LIST @snowcomotive.cons.streamlit_stage/assets/")
+        for row in cur.fetchall():
+            staged_name = row[0].rsplit("/", 1)[-1]
+            if staged_name not in local_asset_names:
+                print(f"  Removing stale stage file: assets/{staged_name}")
+                cur.execute(f"REMOVE @snowcomotive.cons.streamlit_stage/assets/{staged_name}")
 
 
 def run_post_setup() -> None:
