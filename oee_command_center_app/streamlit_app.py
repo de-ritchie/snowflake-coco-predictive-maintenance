@@ -11,9 +11,12 @@ No sidebar machine filter yet (only 1 sensor-enabled machine exists today)
 """
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import streamlit as st
+
+_ASSETS_DIR = Path(__file__).parent / "assets"
 
 if TYPE_CHECKING:
     # Type-hint only -- Streamlit-in-Snowflake's bundled streamlit build does
@@ -32,20 +35,20 @@ CONNECTION_NAME = os.environ.get("SNOWFLAKE_CONNECTION_NAME", "snow-coco")
 # picker page and the Chat page's agent-name resolution. See
 # docs/designs/SH-54-55-56-59-60-52-persona-suite.md §5.2.
 PERSONAS = {
-    "supervisor": {
-        "label": "Maintenance Supervisor",
-        "agent_name": "maintenance_supervisor_agent",
-        "blurb": "Hands-on machine health, root-cause, and maintenance dispatch.",
+    "plant_manager": {
+        "label": "Plant Manager",
+        "agent_name": "plant_manager_agent",
+        "blurb": "Read-only OEE/health/inventory rollup -- no ticketing.",
     },
     "planner": {
         "label": "Production Planner",
         "agent_name": "production_planner_agent",
         "blurb": "Demand, inventory, and OEE risk -- escalates maintenance requests, doesn't dispatch directly.",
     },
-    "plant_manager": {
-        "label": "Plant Manager",
-        "agent_name": "plant_manager_agent",
-        "blurb": "Read-only OEE/health/inventory rollup -- no ticketing.",
+    "supervisor": {
+        "label": "Maintenance Supervisor",
+        "agent_name": "maintenance_supervisor_agent",
+        "blurb": "Hands-on machine health, root-cause, and maintenance dispatch.",
     },
 }
 
@@ -139,18 +142,84 @@ def _set_query_param(name: str, value: str) -> None:
 
 
 def render_sidebar() -> None:
-    """Sidebar contents for SH-21: 'Inject next tick' button only, gated
-    behind ?demo=1 (decision #11) -- hidden by default. Real tick-injection
-    behavior is a separate, not-yet-wired story; this is a disabled
-    placeholder that establishes the gating convention.
-    """
-    if _get_query_param("demo") != "1":
-        return
-    st.sidebar.button(
-        "Inject next tick",
-        disabled=True,
-        help="Tick injection is not wired yet -- placeholder for a future story.",
+    """Sidebar: branding, nav styling, persona indicator (SH-74) + legacy demo button."""
+    # -- Branding: logo above the native page-nav links --
+    st.logo(
+        str(_ASSETS_DIR / "logo.svg"),
+        size="large",
+        icon_image=str(_ASSETS_DIR / "logo_icon.svg"),
     )
+
+    # Streamlit's built-in "large" logo size still caps the image height;
+    # bump it further via CSS so the wordmark reads clearly at a glance.
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebarHeader"] img,
+        [data-testid="stLogo"] {
+            height: 2.75rem !important;
+            width: auto !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # -- CSS: nav pill/box styling, bigger fonts, tighter spacing --
+    st.markdown(
+        """
+        <style>
+        /* Reduce gap between logo and nav section */
+        [data-testid="stSidebarNav"] {
+            padding-top: 0.25rem !important;
+        }
+        /* Reduce gap below the nav list before sidebar content */
+        [data-testid="stSidebarNavItems"] {
+            padding-bottom: 0.5rem !important;
+        }
+        /* Each nav item as a rounded pill/box */
+        [data-testid="stSidebarNavItems"] li {
+            margin-bottom: 6px !important;
+            padding: 0 !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stSidebarNavItems"] li a[data-testid="stSidebarNavLink"] {
+            border-radius: 12px !important;
+            background-color: rgba(255, 255, 255, 0.08) !important;
+            padding: 10px 14px !important;
+            transition: background-color 0.15s ease, border-color 0.15s ease !important;
+            border: 1px solid transparent !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stSidebarNavItems"] li a[data-testid="stSidebarNavLink"]:hover {
+            background-color: rgba(255, 255, 255, 0.12) !important;
+        }
+        /* Active/current page: highlighted pill */
+        [data-testid="stSidebar"] [data-testid="stSidebarNavItems"] li a[data-testid="stSidebarNavLink"][aria-current="page"] {
+            background-color: rgba(41, 181, 232, 0.15) !important;
+            border: 1px solid #29B5E8 !important;
+        }
+        [data-testid="stSidebar"] a[data-testid="stSidebarNavLink"][aria-current="page"] p {
+            font-weight: 700 !important;
+            color: #FAFAFA !important;
+        }
+        /* Nav-link font size */
+        [data-testid="stSidebar"] a[data-testid="stSidebarNavLink"] p {
+            font-size: 1.12rem !important;
+            line-height: 1.4 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if "persona" in st.session_state:
+        label = PERSONAS[st.session_state["persona"]]["label"]
+        st.sidebar.caption(f"Viewing as: **{label}**")
+    if _get_query_param("demo") == "1":
+        st.sidebar.button(
+            "Inject next tick",
+            disabled=True,
+            help="Tick injection is not wired yet -- placeholder for a future story.",
+        )
 
 
 def require_persona() -> str:
@@ -166,7 +235,7 @@ def require_persona() -> str:
     if "persona" not in st.session_state:
         st.info("Please choose a persona to continue.")
         if st.button("Choose persona"):
-            st.switch_page("pages/0_Choose_Persona.py")
+            st.switch_page("streamlit_app.py")
         st.stop()
     return st.session_state["persona"]
 
@@ -182,8 +251,74 @@ if __name__ == "__main__":
     st.set_page_config(page_title="SnowComotive OEE Command Center", layout="wide")
     render_sidebar()
 
-    st.title("SnowComotive OEE Command Center")
-    st.write(
-        "Predictive maintenance & OEE command center. "
-        "Use the **Overview** page in the sidebar to view machine health."
+    # Persona picker -- the app's home/landing page (SH-74).
+    PERSONA_HOME = {
+        "plant_manager": "pages/1_Plant_Overview.py",
+        "planner": "pages/2_Production_Planning.py",
+        "supervisor": "pages/3_Risk_Diagnostics.py",
+    }
+
+    PERSONA_META = {
+        "plant_manager": {
+            "icon": "M",
+            "color": "#7b6bd6",
+            "description": (
+                "Plant-wide OEE rollup, financial risk exposure, "
+                "forecast availability, and asset health summary."
+            ),
+            "route_hint": "Opens Plant Overview →",
+        },
+        "planner": {
+            "icon": "P",
+            "color": "#f08a3c",
+            "description": (
+                "Order trends, demand vs. capacity gap analysis, "
+                "and machine health impact on delivery timelines."
+            ),
+            "route_hint": "Opens Production Planning →",
+        },
+        "supervisor": {
+            "icon": "S",
+            "color": "#1a9e5c",
+            "description": (
+                "Sensor diagnostics per production line, priority risk "
+                "scoring, and maintenance ticket dispatch."
+            ),
+            "route_hint": "Opens Risk & Diagnostics →",
+        },
+    }
+
+    st.markdown(
+        "<h1 style='text-align:center;'>SnowComotive OEE Command Center</h1>"
+        "<p style='text-align:center;color:gray;'>"
+        "Predictive Maintenance &amp; OEE — choose your persona to get started."
+        "</p>",
+        unsafe_allow_html=True,
     )
+
+    current = st.session_state.get("persona")
+    if current:
+        st.caption(f"Currently viewing as: {PERSONAS[current]['label']}")
+
+    cols = st.columns(3)
+    for col, (key, persona) in zip(cols, PERSONAS.items()):
+        meta = PERSONA_META[key]
+        with col:
+            with st.container(border=True):
+                st.markdown(
+                    f'<span style="display:inline-block;width:40px;height:40px;'
+                    f"line-height:40px;text-align:center;border-radius:50%;"
+                    f"background-color:{meta['color']};color:#fff;"
+                    f'font-weight:700;font-size:1.1em;">'
+                    f"{meta['icon']}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f"**{persona['label']}**")
+                st.write(meta["description"])
+                st.caption(meta["route_hint"])
+                if st.button(
+                    f"Continue as {persona['label']}", key=f"persona_{key}"
+                ):
+                    st.session_state["persona"] = key
+                    _set_query_param("persona", key)
+                    st.switch_page(PERSONA_HOME[key])
