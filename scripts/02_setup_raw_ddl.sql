@@ -36,7 +36,30 @@ CREATE TABLE IF NOT EXISTS snowcomotive.raw.sensor_reading (
   equipment_id STRING,
   reading_ts TIMESTAMP_NTZ,
   sensor_type STRING,
-  reading_value FLOAT
+  reading_value FLOAT,
+  -- Real wall-clock load time. DEFAULT CURRENT_TIMESTAMP() only helps a
+  -- hypothetical plain INSERT that omits this column -- it does NOT help
+  -- COPY INTO ... MATCH_BY_COLUMN_NAME, which explicitly NULLs unmatched
+  -- target columns instead of consulting their DEFAULT (confirmed
+  -- empirically and in Snowflake's own COPY INTO docs, 2026-09-29). Since
+  -- every actual loader here (03_setup_raw_load.sql's bulk COPY INTO, and
+  -- manage.py demo inject-tick/inject-batch's PUT+COPY INTO) uses
+  -- MATCH_BY_COLUMN_NAME against Parquet files that don't carry this
+  -- column, each one explicitly runs an UPDATE ... SET insert_time =
+  -- CURRENT_TIMESTAMP() WHERE insert_time IS NULL immediately after its
+  -- own COPY INTO -- that UPDATE, not this DEFAULT, is what actually keeps
+  -- insert_time populated in practice.
+  --
+  -- Downstream dynamic tables' frozen region is keyed off THIS column, not
+  -- reading_ts -- reading_ts is simulated event time that can be
+  -- arbitrarily far in the past relative to real time (the live-tick
+  -- generator replays historical dates), so a reading_ts-relative frozen
+  -- cutoff permanently freezes out newly injected ticks once enough real
+  -- time passes after `manage.py up`. insert_time tracks genuine load
+  -- recency instead, so newly loaded rows are always active (non-frozen)
+  -- immediately after loading, regardless of what date they simulate.
+  -- Confirmed live, 2026-09-29.
+  insert_time TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
 
 CREATE TABLE IF NOT EXISTS snowcomotive.raw.cmms_log (

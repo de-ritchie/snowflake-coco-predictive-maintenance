@@ -48,7 +48,6 @@ def render_badge(status: str) -> str:
 # Data loaders
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def load_line_names() -> list[str]:
     """DX-A1 pattern: distinct sensor-enabled line names for the filter dropdown."""
     conn = get_connection()
@@ -59,12 +58,11 @@ def load_line_names() -> list[str]:
         WHERE is_sensor_enabled
         ORDER BY line_name
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     return df["LINE_NAME"].tolist()
 
 
-@st.cache_data(ttl=300)
 def load_kpi_data(line_filter: str) -> pd.DataFrame:
     """PD-A1 through PD-A8 (Weekly): OEE, Availability, Performance, Quality with deltas."""
     conn = get_connection()
@@ -90,11 +88,10 @@ def load_kpi_data(line_filter: str) -> pd.DataFrame:
         WHERE period_week = (SELECT MAX(period_week) FROM cons.cons__fct_oee WHERE period_week <= CURRENT_DATE())
           {line_clause}
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 
-@st.cache_data(ttl=300)
 def load_kpi_data_monthly(line_filter: str) -> pd.DataFrame:
     """PD-A1 through PD-A8 (Monthly): month-level weighted aggregation with deltas."""
     conn = get_connection()
@@ -126,11 +123,10 @@ def load_kpi_data_monthly(line_filter: str) -> pd.DataFrame:
         WHERE period_month = (SELECT MAX(DATE_TRUNC('month', period_week)) FROM cons.cons__fct_oee WHERE period_week <= CURRENT_DATE())
           {line_clause}
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 
-@st.cache_data(ttl=300)
 def load_asset_risk(line_filter: str) -> pd.DataFrame:
     """PD-B1 through PD-B6: combined asset risk query."""
     conn = get_connection()
@@ -159,11 +155,10 @@ def load_asset_risk(line_filter: str) -> pd.DataFrame:
           {line_clause}
         ORDER BY ps.priority_score DESC
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 
-@st.cache_data(ttl=300)
 def load_oee_trend(line_filter: str) -> pd.DataFrame:
     """PD-D1/D2: historical OEE trend (3 months)."""
     conn = get_connection()
@@ -182,7 +177,7 @@ def load_oee_trend(line_filter: str) -> pd.DataFrame:
           {line_clause}
         ORDER BY line_name, period_week
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     df["PERIOD_WEEK"] = pd.to_datetime(df["PERIOD_WEEK"])
     df["OEE_PCT"] = df["OEE_PCT"] * 100
