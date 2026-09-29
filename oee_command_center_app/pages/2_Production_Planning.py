@@ -40,7 +40,6 @@ def render_badge(status: str) -> str:
 # Data loaders
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def load_line_options() -> list[str]:
     """Distinct line names for the selector (same pattern as Risk & Diagnostics)."""
     conn = get_connection()
@@ -51,12 +50,11 @@ def load_line_options() -> list[str]:
         WHERE is_sensor_enabled
         ORDER BY line_name
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     return df["LINE_NAME"].tolist()
 
 
-@st.cache_data(ttl=300)
 def load_order_trend() -> pd.DataFrame:
     """PR-A1 + PR-A2: historical order volume with 4-week rolling avg."""
     conn = get_connection()
@@ -87,13 +85,12 @@ def load_order_trend() -> pd.DataFrame:
         FROM weekly
         ORDER BY line_name, order_week
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     df["ORDER_WEEK"] = pd.to_datetime(df["ORDER_WEEK"])
     return df
 
 
-@st.cache_data(ttl=300)
 def load_future_orders() -> pd.DataFrame:
     """PR-B1: future weekly order volume per line, next 12 weeks (mirrors the
     trailing-12-week window of load_order_trend() for direct comparison)."""
@@ -113,13 +110,12 @@ def load_future_orders() -> pd.DataFrame:
         GROUP BY eq.line_name, o.order_week
         ORDER BY eq.line_name, o.order_week
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     df["ORDER_WEEK"] = pd.to_datetime(df["ORDER_WEEK"])
     return df
 
 
-@st.cache_data(ttl=300)
 def load_batch_gap() -> pd.DataFrame:
     """PR-C1 through PR-C5: production batch gap."""
     conn = get_connection()
@@ -136,11 +132,10 @@ def load_batch_gap() -> pd.DataFrame:
             ON eq.equipment_id = ps.equipment_id
         ORDER BY gap ASC
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 
-@st.cache_data(ttl=300)
 def load_health_impact() -> pd.DataFrame:
     """PR-D1 through PR-D5: machine health impact on delivery."""
     conn = get_connection()
@@ -158,7 +153,7 @@ def load_health_impact() -> pd.DataFrame:
             ON eq.equipment_id = ps.equipment_id
         ORDER BY ps.priority_score DESC
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 

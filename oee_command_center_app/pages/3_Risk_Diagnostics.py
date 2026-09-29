@@ -59,7 +59,6 @@ def split_trend_and_latest_tick(sensor_df: pd.DataFrame) -> tuple[pd.DataFrame, 
 # Data loaders
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def load_line_options() -> list[str]:
     """DX-A1: distinct line names for the selector."""
     conn = get_connection()
@@ -70,12 +69,11 @@ def load_line_options() -> list[str]:
         WHERE is_sensor_enabled
         ORDER BY line_name
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     return df["LINE_NAME"].tolist()
 
 
-@st.cache_data(ttl=300)
 def load_priority_table() -> pd.DataFrame:
     """DX-C1 through DX-C8: full priority risk score table."""
     conn = get_connection()
@@ -97,11 +95,10 @@ def load_priority_table() -> pd.DataFrame:
             ON eq.equipment_id = ps.equipment_id
         ORDER BY ps.priority_score DESC
         """,
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
 
 
-@st.cache_data(ttl=300)
 def load_sensor_history(equipment_id: str) -> pd.DataFrame:
     """DX-B1/B2/B3: sensor readings (invariant #2: raw values, not FEAST z-scores)."""
     conn = get_connection()
@@ -115,7 +112,7 @@ def load_sensor_history(equipment_id: str) -> pd.DataFrame:
         ) <= ?
         """,
         params=(equipment_id, READINGS_PER_SENSOR),
-        ttl=300,
+        ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
     return df.sort_values("READING_TS")
 
