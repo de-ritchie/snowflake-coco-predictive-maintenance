@@ -35,18 +35,20 @@ COPY INTO snowcomotive.raw.equipment
   MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
   ON_ERROR = 'ABORT_STATEMENT';
 
+-- insert_time has a column DEFAULT (CURRENT_TIMESTAMP()) on
+-- raw.sensor_reading, but COPY INTO ... MATCH_BY_COLUMN_NAME does NOT fall
+-- back to a column's DEFAULT for unmatched source columns -- it explicitly
+-- sets them to NULL instead (confirmed empirically and in Snowflake's docs,
+-- 2026-09-29: "If additional non-matching columns are present in the
+-- target table, the COPY operation inserts NULL values into these
+-- columns."). DEFAULT only helps a plain INSERT that omits the column.
+-- So we still stamp it explicitly right after COPY INTO.
 COPY INTO snowcomotive.raw.sensor_reading
   FROM @snowcomotive.raw.landing_stage/sensor_reading/
   FILE_FORMAT = (TYPE = PARQUET)
   MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
   ON_ERROR = 'ABORT_STATEMENT';
 
--- insert_time has no column DEFAULT (Snowflake's ALTER TABLE ADD COLUMN
--- doesn't support expression defaults) -- every loader stamps it explicitly
--- right after its own COPY INTO instead. WHERE insert_time IS NULL scopes
--- this to rows this exact COPY INTO just landed (re-running this script
--- against already-loaded files is a no-op per COPY INTO's own dedup, so
--- this UPDATE only ever touches genuinely new rows).
 UPDATE snowcomotive.raw.sensor_reading SET insert_time = CURRENT_TIMESTAMP() WHERE insert_time IS NULL;
 
 COPY INTO snowcomotive.raw.cmms_log
