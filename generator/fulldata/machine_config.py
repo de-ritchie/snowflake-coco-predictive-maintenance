@@ -87,22 +87,38 @@ NON_SENSOR_EQUIPMENT: list[dict] = [
 
 # 5 failure modes per LLD Module 2 SS3. Sensitivity is None for the
 # unexplainable mode (no buildup, see degradation.py).
+#
+# RPM sensitivity is negative for every explainable mode (revised
+# 2026-09-30, physics fix): rising friction/load (BEARING_WEAR, TOOL_WEAR),
+# thermal drift affecting spindle drive (COOLANT_THERMAL), and a
+# malfunctioning speed-control loop (SERVO_RPM_INSTABILITY) all cause RPM to
+# droop below baseline as a machine struggles to maintain commanded speed,
+# not rise above it -- unlike VIBRATION/TEMPERATURE, which do genuinely
+# increase with wear/heat, so those stay positive. See
+# generator/fulldata/degradation.py's health()/generate_reading() -- the
+# formula already handles a negative sensitivity correctly (h grows above
+# h0 as failure approaches, so (1-h) goes negative and the reading dips
+# below baseline) with no formula changes needed, verified analytically.
+# Downstream in simulate.py's _restore_breakdown(), the primary/significant
+# sensor selection compares by abs(sensitivity), not raw value, specifically
+# so SERVO_RPM_INSTABILITY's dominant-magnitude-but-negative RPM value is
+# still correctly identified as the primary sensor to restore.
 FAILURE_MODES: dict[str, dict] = {
     "BEARING_WEAR": {
         "probability": 0.28,
-        "sensitivity": {"VIBRATION": 0.8, "TEMPERATURE": 0.6, "RPM": 0.1},
+        "sensitivity": {"VIBRATION": 0.8, "TEMPERATURE": 0.6, "RPM": -0.1},
     },
     "TOOL_WEAR": {
         "probability": 0.24,
-        "sensitivity": {"VIBRATION": 0.9, "TEMPERATURE": 0.1, "RPM": 0.05},
+        "sensitivity": {"VIBRATION": 0.9, "TEMPERATURE": 0.1, "RPM": -0.05},
     },
     "COOLANT_THERMAL": {
         "probability": 0.20,
-        "sensitivity": {"VIBRATION": 0.05, "TEMPERATURE": 0.9, "RPM": 0.05},
+        "sensitivity": {"VIBRATION": 0.05, "TEMPERATURE": 0.9, "RPM": -0.05},
     },
     "SERVO_RPM_INSTABILITY": {
         "probability": 0.18,
-        "sensitivity": {"VIBRATION": 0.15, "TEMPERATURE": 0.05, "RPM": 0.85},
+        "sensitivity": {"VIBRATION": 0.15, "TEMPERATURE": 0.05, "RPM": -0.85},
     },
     "UNEXPLAINABLE": {
         "probability": 0.10,

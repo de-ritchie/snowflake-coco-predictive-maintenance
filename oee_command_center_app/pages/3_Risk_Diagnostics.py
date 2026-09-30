@@ -16,8 +16,12 @@ st.set_page_config(page_title="Risk & Diagnostics", layout="wide")
 
 HEALTH_THRESHOLDS = {"healthy": 40, "watch": 60}
 SENSOR_TYPES = ["VIBRATION", "TEMPERATURE", "RPM"]
-READINGS_PER_SENSOR = 1000
+READINGS_PER_SENSOR = 500
 GAP_THRESHOLD = pd.Timedelta(days=2)
+# Only a trailing run of this few points (or fewer) after the last gap is
+# treated as an "isolated demo tick" -- a real batch injection produces far
+# more points than this and should be drawn as its own trend segment.
+ISOLATED_TICK_MAX_POINTS = 3
 
 BADGE_STYLE = {
     "healthy": ("Healthy", "#2e7d32", "#e8f5e9"),
@@ -43,16 +47,55 @@ def render_badge(status: str) -> str:
 
 
 def split_trend_and_latest_tick(sensor_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series | None]:
-    """Invariant #6: separate bulk historical load from isolated demo ticks."""
+    """Invariant #6: separate bulk historical load from isolated demo ticks.
+
+    Revised 2026-09-30: the previous version only ever looked at the LAST
+    gap > GAP_THRESHOLD and collapsed everything after it to a single
+    point. That's right for a genuinely isolated single-tick demo
+    injection, but wrong when a real production gap (e.g. a machine idle
+    for a long weekend) is followed by several more days of perfectly
+    continuous data (a batch injection) -- that whole continuous segment
+    was being silently dropped from the visible trend line, even though
+    the data is there in Snowflake. Now: only a small trailing run of
+    points (<= ISOLATED_TICK_MAX_POINTS) after the last gap is treated as
+    an isolated demo tick; any larger trailing segment is real data and
+    gets drawn as trend. Every remaining real gap just breaks the line
+    (via an inserted null-value row) instead of connecting across it or
+    dropping the data on either side.
+    """
     sensor_df = sensor_df.sort_values("READING_TS").reset_index(drop=True)
     if len(sensor_df) < 2:
         return sensor_df, None
     gaps = sensor_df["READING_TS"].diff()
-    break_positions = gaps[gaps > GAP_THRESHOLD].index
-    if break_positions.empty:
+    break_positions = list(gaps[gaps > GAP_THRESHOLD].index)
+    if not break_positions:
         return sensor_df, None
-    split_at = break_positions[-1]
-    return sensor_df.iloc[:split_at], sensor_df.iloc[split_at:].iloc[-1]
+
+    latest_tick = None
+    trailing_start = break_positions[-1]
+    trailing = sensor_df.iloc[trailing_start:]
+    if len(trailing) <= ISOLATED_TICK_MAX_POINTS:
+        latest_tick = trailing.iloc[-1]
+        trend_df = sensor_df.iloc[:trailing_start].copy()
+        break_positions = break_positions[:-1]
+    else:
+        trend_df = sensor_df.copy()
+
+    if break_positions:
+        null_rows = pd.DataFrame(
+            {
+                "READING_TS": [
+                    trend_df.loc[pos - 1, "READING_TS"]
+                    + (trend_df.loc[pos, "READING_TS"] - trend_df.loc[pos - 1, "READING_TS"]) / 2
+                    for pos in break_positions
+                ],
+                "READING_VALUE": pd.Series([float("nan")] * len(break_positions), dtype="float64"),
+            }
+        )
+        trend_df = pd.concat([trend_df, null_rows], ignore_index=True)
+        trend_df = trend_df.sort_values("READING_TS").reset_index(drop=True)
+
+    return trend_df, latest_tick
 
 
 # ---------------------------------------------------------------------------
