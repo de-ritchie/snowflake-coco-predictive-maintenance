@@ -71,6 +71,13 @@ def _restore_breakdown(rng: np.random.Generator, state: _MachineRuntimeState, fa
     the mode that just failed) -> Uniform(0.90,0.95); other sensors with
     sensitivity > 0.3 -> Uniform(0.70,0.80); sensitivity <= 0.3 -> unchanged.
 
+    Compares by abs(sensitivity), not raw value (revised 2026-09-30): RPM
+    sensitivity is negative for every explainable mode (machine_config.py's
+    physics fix -- RPM droops toward failure rather than rising), so
+    SERVO_RPM_INSTABILITY's dominant-but-negative RPM sensitivity (-0.85)
+    must still be correctly identified as that mode's primary/most-affected
+    sensor, not misread as the least-affected one by a raw signed max().
+
     Unexplainable mode has no sensitivity table (LLD SS3 shows no values for
     it) -- no hardware fault was identified, so no sensor is reset here
     (documented interpretation, not explicitly specified by the LLD).
@@ -80,13 +87,13 @@ def _restore_breakdown(rng: np.random.Generator, state: _MachineRuntimeState, fa
     sensitivities = FAILURE_MODES[failed_mode]["sensitivity"]
     if sensitivities is None:
         return
-    primary_sensor = max(sensitivities, key=sensitivities.get)
+    primary_sensor = max(sensitivities, key=lambda s: abs(sensitivities[s]))
     for sensor in SENSOR_TYPES:
         if sensor == primary_sensor:
             state.sensor_health_start[sensor] = rng.uniform(0.90, 0.95)
-        elif sensitivities[sensor] > 0.3:
+        elif abs(sensitivities[sensor]) > 0.3:
             state.sensor_health_start[sensor] = rng.uniform(0.70, 0.80)
-        # else: sensitivity <= 0.3 and not primary -- unchanged.
+        # else: |sensitivity| <= 0.3 and not primary -- unchanged.
 
 
 def run_simulation(
@@ -100,6 +107,7 @@ def run_simulation(
     per-tick sensor files to `output_dir/live_ticks/` directly; returns the
     remaining bulk tables as DataFrames for the caller to write out.
     """
+    import glob
     import os
 
     base_monday = sim_calendar.run_start_monday(now)
@@ -271,6 +279,22 @@ def run_simulation(
     # --- Write trailing-30-day per-tick live files ---
     live_ticks_dir = os.path.join(output_dir, "live_ticks")
     os.makedirs(live_ticks_dir, exist_ok=True)
+    # Clear stale tick files (and any leftover cursor) before writing this
+    # run's files (bug fix, 2026-09-30): os.makedirs(exist_ok=True) only
+    # ensures the directory exists -- it does NOT clear pre-existing files.
+    # A fresh generation computes live_start_date from *this* run's `now`,
+    # which lands on a different date window than a prior generation's. Any
+    # old tick files from that prior window were silently left behind,
+    # sitting alongside this run's genuinely-contiguous files -- and since
+    # they overlap with dates already covered by the (also freshly written)
+    # bulk historical table, injecting one duplicates rows that already
+    # exist. Only the reuse-dataset-path path (which skips this function
+    # entirely) is exempt -- see manage.py's generate_full_data().
+    for stale_file in glob.glob(os.path.join(live_ticks_dir, "*.parquet")):
+        os.remove(stale_file)
+    cursor_file = os.path.join(live_ticks_dir, ".cursor")
+    if os.path.exists(cursor_file):
+        os.remove(cursor_file)
     for reading_ts, rows in live_tick_buffer.items():
         file_name = f"reading_{reading_ts.strftime('%Y-%m-%dT%H-%M-%S')}.parquet"
         pd.DataFrame(rows).to_parquet(

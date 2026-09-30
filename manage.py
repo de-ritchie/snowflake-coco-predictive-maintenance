@@ -92,11 +92,16 @@ setup-jira (SH-53 / S-JIRA-1): standalone, NOT part of `up` -- provisions the
   variable (`SET jira_api_token = ...`) so the literal token value never
   appears in the .sql file, in this script's own print()s, or on disk.
 
-authorize-jira-mcp (SH-62 / S-STRETCH-2): standalone, NOT part of `up` --
-  read-only existence/enabled check for the Jira MCP server
-  (jira_mcp_integration/snowcomotive.cons.jira_mcp_server, created by
-  scripts/07c_setup_jira_mcp.sql, run separately -- see that script's
-  header), then prints pointers to the UI flow that actually authorizes it.
+authorize-jira-mcp (SH-62 / S-STRETCH-2): read-only existence/enabled check
+  for the Jira MCP server (jira_mcp_integration/snowcomotive.cons.jira_mcp_
+  server, created by scripts/07c_setup_jira_mcp.sql). As of 2026-09-30, both
+  07c and this check now also run automatically as the LAST two steps of
+  `up` (deliberately last -- see run_setup_jira_mcp()'s own comment for the
+  reasoning: both objects are IF NOT EXISTS/idempotent, and this connector
+  is an optional add-on, not load-bearing for the core pipeline above it).
+  Kept as its own standalone command too, for re-checking status without a
+  full `up` (e.g. after manually re-authorizing). Prints pointers to the UI
+  flow that actually authorizes it -- see below for why.
   SH-62 amendment (2026-09-28): scripted OAuth via SYSTEM$START_USER_OAUTH_
   FLOW/SYSTEM$FINISH_OAUTH_FLOW was abandoned after repeated live failures
   from a CLI/script context ("Invalid request to complete OAuth flow" /
@@ -120,7 +125,11 @@ simpler than Module 10 §6's literal pseudocode (frozen design doc SH-34-36-41
                    (simulate.py, T3) there are always exactly 2 such
                    date-chunks, so 2 calls drain the whole live window.
   reset-cursor  -- clears the cursor, restarting the drip-feed from the first
-                   tick for a repeat demo run.
+                   tick for a repeat demo run. Also called automatically as
+                   the first step of `up` (2026-09-30) -- see run_up()'s own
+                   comment: the cursor lives on local disk, not in
+                   Snowflake, so it survives `down` untouched and would
+                   otherwise go stale relative to the fresh environment.
 
 """
 
@@ -345,6 +354,25 @@ def run_post_setup() -> None:
 
 
 def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str) -> None:
+    # Reset the live-tick drip-feed cursor unconditionally, first thing
+    # (revised 2026-09-30): output/live_ticks/.cursor lives on local disk,
+    # not in Snowflake, so `manage.py down` (SQL-only, drops the database)
+    # never touches it -- a fresh environment after teardown+up has zero
+    # live ticks loaded (the bulk load only covers dates before
+    # live_start_date; live_ticks/ is deliberately excluded from it, see
+    # simulate.py's historical/live split), but a stale cursor from a
+    # previous environment could still claim "fully drained". This bites
+    # hardest with --reuse-dataset-path (identical filenames survive
+    # teardown, so a stale cursor silently matches and inject-tick/
+    # inject-batch wrongly refuse to inject anything into the new
+    # environment). A fresh generation run mostly self-heals via
+    # inject_next_tick()/inject_next_batch()'s "cursor references unknown
+    # tick -- restarting from the first file" fallback, since regenerated
+    # files get different timestamp-based names, but that's incidental, not
+    # guaranteed -- resetting here makes "up always starts a fresh
+    # drip-feed" an explicit invariant instead of relying on that
+    # incidental behavior. Confirmed live, 2026-09-30.
+    reset_cursor()
     # DYNAMIC_TABLE_TARGET_LAG (SH-72) -- read by dbt_project.yml's
     # `target_lag` var, consumed only by cons__fct_priority_score.sql (the
     # pipeline's one leaf dynamic table; the other 5 are target_lag=
@@ -418,6 +446,9 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str)
         conn.close()
     run_dbt_phase2_and_test()
     run_post_setup()
+    # Deliberately LAST -- see run_setup_jira_mcp()'s own comment for why.
+    run_setup_jira_mcp()
+    run_authorize_jira_mcp()
     print("--- up complete ---")
     print(
         "\nReminder: for ad hoc queries outside manage.py (Snowsight, debugging "
@@ -427,6 +458,32 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str)
         "connections' for the exact connections.toml snippet and why a single "
         "pinned profile can't also be used for manage.py up/down."
     )
+
+
+def run_setup_jira_mcp() -> None:
+    # SH-62 (S-STRETCH-2) follow-up: folded into `up` as its deliberately
+    # LAST step (2026-09-30) -- both objects in 07c_setup_jira_mcp.sql use
+    # IF NOT EXISTS (idempotent, safe to re-run every `up`), and this
+    # connector is an optional, external-dependency add-on, not load-bearing
+    # for the core data/model pipeline above it. Running it last means a
+    # failure here (e.g. org policy blocking OAUTH_DYNAMIC_CLIENT, or an
+    # Atlassian-side outage) never blocks or partially completes the actual
+    # pipeline.
+    #
+    # role='ACCOUNTADMIN' -- 07c's first statement (CREATE API INTEGRATION)
+    # is account-level; snowcomotive_role lacks CREATE INTEGRATION granted
+    # on ACCOUNT (confirmed empirically: "Insufficient privileges... must
+    # have CREATE API INTEGRATION granted on ACCOUNT"). The script's own
+    # `USE ROLE snowcomotive_role;` mid-file switches back for the
+    # schema-scoped MCP server object -- same "open as ACCOUNTADMIN, let the
+    # file's own statements switch roles" pattern as 01_setup.sql/
+    # 09_teardown.sql.
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="ACCOUNTADMIN")
+    try:
+        cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "07c_setup_jira_mcp.sql")
+    finally:
+        conn.close()
 
 
 def run_setup_jira(token: str) -> None:

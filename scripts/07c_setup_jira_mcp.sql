@@ -26,10 +26,14 @@
 -- 07_post_setup.sql's CREATE OR REPLACE AGENT convention -- those objects
 -- have no attached credential state to lose on replace; this one does.
 --
--- Run standalone (not part of `manage.py up`, and not wired into
--- `manage.py post-setup` either) -- same "07/07b precedent" as
--- 07b_setup_jira_ticket_store.sql, which likewise has no dedicated
--- manage.py command. Run directly against the snow-co-cat-alyst connection.
+-- Runs automatically as the deliberately-LAST step of `manage.py up`
+-- (2026-09-30, run_setup_jira_mcp()) -- both objects here are IF NOT
+-- EXISTS/idempotent, and this connector is an optional add-on, not
+-- load-bearing for the core data/model pipeline that runs before it, so a
+-- failure here (org policy, Atlassian-side issue, etc.) never blocks or
+-- partially completes that pipeline. Still safe to run standalone too
+-- (e.g. to (re)create these objects without a full `up`) -- run directly
+-- against the snow-co-cat-alyst connection.
 --
 -- DEVIATION FROM DESIGN DOC (confirmed live, this session): the design
 -- doc's sketch assumed `USE ROLE snowcomotive_role` for the whole script,

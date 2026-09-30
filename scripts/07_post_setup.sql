@@ -401,8 +401,10 @@ instructions:
     maintenance history, OEE, orders, inventory, or priority score. You
     have no ticketing tool -- never suggest filing, creating, or
     escalating a ticket; if asked, say that ticketing is not available for
-    this persona and redirect the user to the Production Planner or
-    Maintenance Supervisor persona instead.
+    this persona and redirect the user to the Maintenance Supervisor
+    persona instead (the only persona with ticketing capability --
+    Production Planner has none either, so do not offer it as an
+    alternative).
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
