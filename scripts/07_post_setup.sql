@@ -99,7 +99,15 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     priority_score AS snowcomotive.cons.cons__fct_priority_score
       PRIMARY KEY (equipment_id, score_ts)
       WITH SYNONYMS ('priority', 'priority score', 'RUL', 'remaining useful life', 'urgency ranking')
-      COMMENT = 'Composite 0-100 priority score per machine (RUL urgency, demand pressure, inventory buffer, spare-part readiness) -- always latest-per-equipment, per docs/designs/SH-47-priority-score.md'
+      COMMENT = 'Composite 0-100 priority score per machine (RUL urgency, demand pressure, inventory buffer, spare-part readiness) -- always latest-per-equipment, per docs/designs/SH-47-priority-score.md',
+    dollar_exposure AS snowcomotive.cons.cons__fct_dollar_exposure
+      PRIMARY KEY (equipment_id)
+      WITH SYNONYMS ('financial exposure', 'dollar at risk', 'revenue at risk')
+      COMMENT = 'Per-equipment combined dollar exposure: forward $ at risk + historical realized impact (collapsed totals)',
+    historical_dollar_impact AS snowcomotive.cons.cons__fct_historical_dollar_impact
+      PRIMARY KEY (equipment_id, event_start_ts)
+      WITH SYNONYMS ('historical loss', 'revenue loss', 'breakdown cost')
+      COMMENT = 'Per-breakdown-event realized dollar impact (demand-capped lost units × unit margin)'
   )
   RELATIONSHIPS (
     sensor_reading_to_machine AS sensor_reading (equipment_id) REFERENCES machine (equipment_id),
@@ -109,7 +117,9 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     machine_to_product AS machine (product_id, variant) REFERENCES product (product_id, variant),
     order_to_product AS order_ (product_id, variant) REFERENCES product (product_id, variant),
     inventory_fg_to_product AS inventory_fg (product_id, variant) REFERENCES product (product_id, variant),
-    priority_score_to_machine AS priority_score (equipment_id) REFERENCES machine (equipment_id)
+    priority_score_to_machine AS priority_score (equipment_id) REFERENCES machine (equipment_id),
+    dollar_exposure_to_machine AS dollar_exposure (equipment_id) REFERENCES machine (equipment_id),
+    historical_dollar_impact_to_machine AS historical_dollar_impact (equipment_id) REFERENCES machine (equipment_id)
   )
   FACTS (
     sensor_reading.reading_value AS reading_value,
@@ -127,7 +137,11 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     priority_score.demand_pressure AS demand_pressure,
     priority_score.inventory_buffer AS inventory_buffer,
     priority_score.spare_part_readiness AS spare_part_readiness,
-    priority_score.required_run_hours_next_4wk AS required_run_hours_next_4wk
+    priority_score.required_run_hours_next_4wk AS required_run_hours_next_4wk,
+    dollar_exposure.forward_dollar_at_risk_usd AS forward_dollar_at_risk_usd,
+    dollar_exposure.historical_realized_impact_usd AS historical_realized_impact_usd,
+    historical_dollar_impact.event_realized_impact_usd AS event_realized_impact_usd,
+    historical_dollar_impact.breakdown_duration_hours AS duration_hours
   )
   DIMENSIONS (
     machine.equipment_id AS equipment_id,
@@ -148,13 +162,16 @@ CREATE OR REPLACE SEMANTIC VIEW snowcomotive.cons.oee_semantic_view
     inventory_spare.inventory_spare_period_week AS period_week,
     inventory_spare.spare_part_name AS spare_part_name,
     oee_metric.oee_period_week AS period_week,
-    priority_score.score_ts AS score_ts
+    priority_score.score_ts AS score_ts,
+    historical_dollar_impact.event_start_ts AS event_start_ts
   )
   METRICS (
     oee_metric.avg_availability_pct AS AVG(oee_metric.availability_pct),
     oee_metric.avg_oee_pct AS AVG(oee_metric.oee_pct),
     anomaly_result.anomaly_count AS SUM(IFF(anomaly_result.is_anomaly, 1, 0)),
-    order_.total_order_units AS SUM(order_.order_units)
+    order_.total_order_units AS SUM(order_.order_units),
+    dollar_exposure.total_forward_dollar_at_risk AS SUM(dollar_exposure.forward_dollar_at_risk_usd),
+    historical_dollar_impact.total_historical_impact AS SUM(historical_dollar_impact.event_realized_impact_usd)
   )
   COMMENT = 'SnowComotive skeleton semantic view: machine health/anomalies, maintenance, OEE, orders, inventory.'
   AI_VERIFIED_QUERIES (
@@ -255,6 +272,19 @@ FROM snowcomotive.cons.cons__fct_priority_score ps
 JOIN snowcomotive.cons.cons__dim_equipment eq
     ON eq.equipment_id = ps.equipment_id
 ORDER BY ps.predicted_rul_hours - ps.required_run_hours_next_4wk ASC'
+    ),
+    financial_exposure_by_machine AS (
+      QUESTION 'What is the forward dollar at risk and historical realized impact for each machine?'
+      SQL 'SELECT
+    eq.equipment_id,
+    eq.equipment_name,
+    eq.line_name,
+    de.forward_dollar_at_risk_usd,
+    de.historical_realized_impact_usd
+FROM snowcomotive.cons.cons__fct_dollar_exposure de
+JOIN snowcomotive.cons.cons__dim_equipment eq
+    ON eq.equipment_id = de.equipment_id
+ORDER BY de.forward_dollar_at_risk_usd DESC'
     )
   );
 
@@ -398,8 +428,12 @@ instructions:
     stale, say so explicitly rather than guessing.
   orchestration: >
     Use the Analyst tool for any question about machine health, anomalies,
-    maintenance history, OEE, orders, inventory, or priority score. You
-    have no ticketing tool -- never suggest filing, creating, or
+    maintenance history, OEE, orders, inventory, priority score, or
+    financial exposure (forward dollar-at-risk and historical realized
+    revenue loss). For questions about financial exposure, dollar risk, or
+    revenue impact, use the Analyst tool — it can answer both per-machine
+    and plant-wide queries, including historical loss trending by month or
+    week. You have no ticketing tool — never suggest filing, creating, or
     escalating a ticket; if asked, say that ticketing is not available for
     this persona and redirect the user to the Maintenance Supervisor
     persona instead (the only persona with ticketing capability --

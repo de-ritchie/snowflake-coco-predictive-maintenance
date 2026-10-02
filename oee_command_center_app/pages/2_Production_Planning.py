@@ -185,7 +185,7 @@ col_gap, col_health = st.columns(2)
 # --- Production Batch Gap (left column) --------------------------------------
 
 with col_gap:
-    st.markdown("**Production Batch Gap**")
+    st.markdown("**Predicted Production Batch Gap**")
     st.caption("Predicted RUL minus required run-hours (next 4wk). "
                "Positive = surplus, negative = shortfall.")
 
@@ -272,7 +272,7 @@ with col_gap:
 # --- Machine Health Impact (right column) ------------------------------------
 
 with col_health:
-    st.markdown("**Machine Health Impact on Delivery**")
+    st.markdown("**Predicted Machine Health Impact on Delivery**")
     st.caption("Sorted by priority score — machines to watch for delivery risk.")
 
     impact_df = load_health_impact()

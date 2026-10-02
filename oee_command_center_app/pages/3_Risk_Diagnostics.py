@@ -180,7 +180,7 @@ selected_line = None if line_filter == "All Lines" else line_filter
 
 # --- Section C: Priority Risk Score (rendered before sensors for layout) -----
 
-st.subheader("Priority Risk Score")
+st.subheader("Predicted Priority Risk Score")
 st.caption(
     "Ranked by composite priority score — RUL urgency (w=0.40), demand "
     "pressure (w=0.25), inventory buffer (w=0.20), spare-part readiness "
@@ -217,7 +217,7 @@ if not filtered_priority.empty:
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
     # Stacked factor chart
-    st.subheader("Weighted Contribution to Priority Score")
+    st.subheader("Predicted Weighted Contribution to Priority Score")
     chart_df = filtered_priority.copy()
     chart_df["RUL Urgency"] = 40 * chart_df["RUL_URGENCY"]
     chart_df["Demand Pressure"] = 25 * chart_df["DEMAND_PRESSURE"]
@@ -241,7 +241,7 @@ if not filtered_priority.empty:
     st.plotly_chart(fig, use_container_width=True)
 
     # Survives demand badges
-    st.subheader("Survives Its Own Demand?")
+    st.subheader("Predicted Survives Its Own Demand?")
     st.caption(
         "Compares predicted_rul_hours against required_run_hours_next_4wk — "
         "both read from cons.fct_priority_score."

@@ -9,7 +9,17 @@
 ) }}
 
 -- Dollar-exposure combiner — the new single leaf of the dynamic-table chain
--- (SH-84 §3.3, replaces cons__fct_priority_score as the leaf).
+-- (SH-84 §3.3, SH-85 §3.2 — pre-aggregate CTE over event-grain historical view).
+WITH hist_totals AS (
+    SELECT
+        equipment_id,
+        COUNT(*) AS breakdown_count,
+        SUM(duration_hours) AS total_breakdown_hours,
+        SUM(event_realized_impact_usd) AS historical_realized_impact_usd
+    FROM {{ ref('cons__fct_historical_dollar_impact') }}
+    GROUP BY equipment_id
+)
+
 SELECT
     COALESCE(h.equipment_id, f.equipment_id) AS equipment_id,
     f.score_ts,
@@ -24,5 +34,5 @@ SELECT
     COALESCE(h.historical_realized_impact_usd, 0) AS historical_realized_impact_usd,
     COALESCE(f.forward_dollar_at_risk_usd, 0) AS forward_dollar_at_risk_usd
 FROM {{ ref('cons__fct_forward_dollar_at_risk') }} f
-FULL OUTER JOIN {{ ref('cons__fct_historical_dollar_impact') }} h
+FULL OUTER JOIN hist_totals h
     ON h.equipment_id = f.equipment_id
