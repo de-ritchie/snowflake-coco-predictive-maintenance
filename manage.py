@@ -390,6 +390,7 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str)
     conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="ACCOUNTADMIN")
     try:
         cur = conn.cursor()
+        run_sql_file(cur, SCRIPTS_DIR / "01_setup.sql")
         # SH-83 follow-up: derive dbt's own SNOWFLAKE_DBT_ACCOUNT/SNOWFLAKE_DBT_USER
         # from this same live connection instead of requiring a second, manually
         # kept-in-sync pair of env vars -- avoids ever parsing connections.toml
@@ -424,7 +425,6 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str)
         if dbt_check.returncode != 0:
             print("--- dbt debug failed -- aborting before any setup work runs. ---")
             raise typer.Exit(code=1)
-        run_sql_file(cur, SCRIPTS_DIR / "01_setup.sql")
         # Switch to snowcomotive_role for everything else so objects it
         # creates (RAW tables, the training stored procedure) are owned by
         # snowcomotive_role -- matching dbt's own connection. Staying on
