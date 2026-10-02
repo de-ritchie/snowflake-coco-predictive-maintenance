@@ -28,3 +28,7 @@ seeds:
       - name: variant
         tests:
           - not_null
+      - name: unit_margin
+        description: "Contribution margin per unit (revenue minus variable cost), USD. EV variants carry a small premium over ICE."
+        tests:
+          - not_null

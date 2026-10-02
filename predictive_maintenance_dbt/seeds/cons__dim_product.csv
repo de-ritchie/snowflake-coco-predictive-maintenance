@@ -1,5 +1,5 @@
-product_id,product_name,variant
-BRAKE_CALIPER,Brake Caliper,EV
-BRAKE_CALIPER,Brake Caliper,ICE
-ENGINE_HEAD,Engine Head,EV
-ENGINE_HEAD,Engine Head,ICE
+product_id,product_name,variant,unit_margin
+BRAKE_CALIPER,Brake Caliper,EV,55.00
+BRAKE_CALIPER,Brake Caliper,ICE,50.00
+ENGINE_HEAD,Engine Head,EV,150.00
+ENGINE_HEAD,Engine Head,ICE,140.00
