@@ -105,7 +105,19 @@ def train(session):
         booster,
         model_name="rul_aft_model",
         version_name=version_name,
-        sample_input_data=train_pdf[feature_cols].head(1000),
+        # SH-86: random sample, not head(1000) -- train_pdf is sorted by
+        # (equipment_id, reading_ts) for the stable-sort/reproducibility fix
+        # above, so a head() sample is just the earliest ticks of the
+        # alphabetically-first equipment. Each equipment's very first cycle
+        # (before its first-ever maintenance event) has NULL
+        # hours_since_last_service for every tick in that stretch (confirmed
+        # empirically: CNC_BORING alone has 924 consecutive NULL ticks at
+        # the start of its history) -- a head(1000) sample landed entirely
+        # inside that NULL block and broke the Registry's signature
+        # inference ("no non-null data in column hours_since_last_service").
+        # A random sample draws from across all equipment/time ranges, so it
+        # reliably picks up non-null values in every column.
+        sample_input_data=train_pdf[feature_cols].sample(n=min(1000, len(train_pdf)), random_state=42),
         options={
             "enable_explainability": True,
             "embed_local_ml_library": True,  # same reason as isolation_forest_model --
