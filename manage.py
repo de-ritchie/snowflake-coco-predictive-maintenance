@@ -390,6 +390,40 @@ def run_up(seed: int, now: str, reuse_dataset_path: str | None, target_lag: str)
     conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="ACCOUNTADMIN")
     try:
         cur = conn.cursor()
+        # SH-83 follow-up: derive dbt's own SNOWFLAKE_DBT_ACCOUNT/SNOWFLAKE_DBT_USER
+        # from this same live connection instead of requiring a second, manually
+        # kept-in-sync pair of env vars -- avoids ever parsing connections.toml
+        # (which holds a plaintext password) just to read account/user, and
+        # reflects what the active session actually is, not what a config file
+        # claims. CURRENT_ACCOUNT() alone returns the internal account locator
+        # (e.g. BOC76710), NOT the org-account identifier format profiles.yml
+        # needs -- must concatenate org name + account name instead (confirmed
+        # live). Both-or-nothing override: if the user has already exported both
+        # vars themselves (e.g. to intentionally point dbt at a different
+        # account), that's respected and derivation is skipped entirely.
+        if os.environ.get("SNOWFLAKE_DBT_ACCOUNT") and os.environ.get("SNOWFLAKE_DBT_USER"):
+            print("--- Using explicitly-set SNOWFLAKE_DBT_ACCOUNT/SNOWFLAKE_DBT_USER (override) ---")
+        else:
+            cur.execute(
+                "SELECT CURRENT_ORGANIZATION_NAME() || '-' || CURRENT_ACCOUNT_NAME(), CURRENT_USER()"
+            )
+            account, user = cur.fetchone()
+            os.environ["SNOWFLAKE_DBT_ACCOUNT"] = account
+            os.environ["SNOWFLAKE_DBT_USER"] = user
+            print(f"--- Derived dbt connection from active session: account={account} user={user} ---")
+        # Fail fast: manage.py's own connection above (password/snowflake
+        # authenticator, from connections.toml) and dbt's profiles.yml
+        # connection (oauth_authorization_code) are independent auth
+        # mechanisms -- the former succeeding does not prove the latter will.
+        # Check here, before any setup SQL or the expensive data-generation
+        # step runs, rather than failing 10+ minutes in on the first dbt call.
+        dbt_check = subprocess.run(
+            ["dbt", "debug", "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)],
+            cwd=DBT_DIR,
+        )
+        if dbt_check.returncode != 0:
+            print("--- dbt debug failed -- aborting before any setup work runs. ---")
+            raise typer.Exit(code=1)
         run_sql_file(cur, SCRIPTS_DIR / "01_setup.sql")
         # Switch to snowcomotive_role for everything else so objects it
         # creates (RAW tables, the training stored procedure) are owned by
