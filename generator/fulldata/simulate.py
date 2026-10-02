@@ -235,7 +235,16 @@ def run_simulation(
                             sensor_rows_historical.append(row)
 
                     if state.t_hours >= state.t_fail_hours:
-                        breakdown_duration = float(rng.uniform(10, 24))
+                        # Shifted Weibull (shape=2.0, same shape already used for
+                        # time-to-failure above -- reusing this codebase's own
+                        # statistical vocabulary rather than introducing a new
+                        # distribution family): 12h hard floor, ~24h median, long
+                        # tail reaching into the high-30s/low-40s for the rare
+                        # severe event (part-ordering delay, major component
+                        # failure) -- vs. the old uniform(10,24)'s hard 24h cap
+                        # and no tail at all. Replaces every breakdown's duration,
+                        # not just a subset -- regenerate data to see the effect.
+                        breakdown_duration = 12.0 + float(rng.weibull(2.0) * 14.4)
                         end_ts = reading_ts + timedelta(hours=breakdown_duration)
                         failed_mode = state.mode
                         _restore_breakdown(rng, state, failed_mode)
