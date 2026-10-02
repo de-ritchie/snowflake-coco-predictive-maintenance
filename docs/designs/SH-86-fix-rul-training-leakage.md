@@ -367,11 +367,55 @@ booster = xgb.train(params, dtrain, num_boost_round=200)  # SH-86: raised from 1
 
 ---
 
-## 7. `scripts/06b_evaluate_rul_model.sql` — O(n log n) concordance + trajectory correlation
+## 7. `scripts/06b_evaluate_rul_model.sql` — concordance + trajectory correlation
 
 This is the most substantive code change in the story.
 
-### 7a. O(n log n) concordance index via Fenwick tree
+> **Updated 2026-10-03 (follow-up rewrite, same PR #38, same Jira SH-86):** §7a/§7b below describe the *originally specified* O(n log n) Fenwick-tree algorithm. That implementation was **not what shipped**. Per explicit user direction in a later conversation (not a developer deviation), the Fenwick tree was removed entirely and replaced with a Snowflake SQL self-join that lets the warehouse compute the same metric natively — see §7a-v3/§7b-v3 immediately below for what was actually built. §7a/§7b are kept verbatim afterward purely as a historical record of the original plan; they do not describe the current implementation. The same follow-up also touched §7c (trajectory window 144h → 500h) and §7e (`_read_split` migrated from pandas to a Snowpark DataFrame) — see §7f/§7g.
+
+### 7a-v3. Concordance index via SQL self-join (as shipped)
+
+The Fenwick-tree approach was abandoned in favor of making the entire evaluation script Snowpark-native — no local Python algorithms at all. `_concordance_index_self_join()` builds a self-join over the scored test set using `row_number()` for a stable total order, joins on `a.rn < b.rn` (every unordered pair exactly once, no self-pairs), and classifies each pair via boolean expressions evaluated server-side, aggregated with a single `sf_sum(when(...))` pass:
+
+```python
+scored = scored_df.select(
+    row_number().over(Window.order_by("equipment_id", "reading_ts")).alias("rn"),
+    col("y_lower"), col("event_observed"), col("predicted_hours"),
+)
+a, b = scored.alias("a"), scored.alias("b")
+pairs = a.join(b, col("a", "rn") < col("b", "rn"))
+# comparable / concordant / discordant / tied_risk / tied_time expressions,
+# same comparability rules as the original Fenwick-tree design (§7a):
+#   both uncensored -> always comparable
+#   one uncensored vs one censored -> comparable only if the uncensored
+#     row's time is strictly earlier
+#   both censored -> never comparable
+result = pairs.agg(
+    sf_sum(when(concordant_expr, 1).otherwise(0)).alias("concordant"),
+    sf_sum(when(discordant_expr, 1).otherwise(0)).alias("discordant"),
+    sf_sum(when(tied_risk_expr, 1).otherwise(0)).alias("tied_risk"),
+    sf_sum(when(tied_time_expr, 1).otherwise(0)).alias("tied_time"),
+).collect()[0]
+```
+
+**Comparability rules are unchanged** from the Fenwick-tree design (§7a) and from SH-46 §4 — only the mechanism changed, not the metric semantics.
+
+**Complexity tradeoff (explicit, accepted)**: this trades the Fenwick tree's "stays O(n log n) forever" guarantee for "100% Snowpark, costs grow quadratically (O(n²)) with test-set size" — a self-join over n rows produces ~n²/2 pairs. At the current ~33k-row test-set scale this is ~537M pairs. Measured end-to-end runtime: **53.4 seconds on an X-Small warehouse**, covering model inference + the self-join + MAE/RMSE/trajectory-correlation/outlier-check — no performance problem observed at this scale.
+
+**Scalability mitigation (documented, not applied)**: the script's own header comment specifies the fallback if the test set grows enough to make the O(n²) self-join a real cost/performance problem: add a `.filter(col("y_lower") <= 144)` (or `<= 500`) immediately before the self-join, restricting the concordance computation to a near-event window instead of the full test set. This is **not currently applied** — the full-test-set self-join measured acceptable at the live ~33k-row scale, so the mitigation is left as a documented option rather than pre-emptively implemented.
+
+**Validation evidence**:
+- Cross-checked once (not kept in the file) against `lifelines.utils.concordance_index()` — a well-tested, independent implementation available in Snowflake's Anaconda channel — in a throwaway stored procedure (`sp_verify_concordance_lifelines`, run once then dropped). On the full live 32,771-row test set: lifelines = **0.701746**, self-join = **0.701800** — matching within floating-point/tie-handling precision.
+- This cross-check also required empirically confirming lifelines' sign convention for its `predicted_scores` argument: it treats the score like a predicted *survival time* (higher = later failure = lower risk) — the same natural meaning as this codebase's raw `predicted_hours` — so it must be passed directly, **not negated**. Negating gives 0.298254 (= 1 − 0.701746), confirming the sign-flip and ruling out an accidental convention mismatch.
+- The self-join's `concordant`/`discordant`/`tied_risk`/`tied_time` counts also exactly match the counts produced by the original Fenwick-tree baseline on the same full test set: **323094267 / 137307689 / 17302 / 184266**.
+
+### 7b-v3. Verification method actually used (supersedes §7b)
+
+§7b below specifies a bit-identical cross-check against a brute-force O(n²) Python implementation on the original ~19/24-row test set, with the brute-force code removed afterward. **This did not happen.** Instead, the self-join was verified once against `lifelines.utils.concordance_index()` directly on the full live 32,771-row test set (see validation evidence above), using a one-off stored procedure that was created, run, and dropped — never committed to the repo. No brute-force Python implementation exists anywhere in the final `06b_evaluate_rul_model.sql`; the file now contains only the self-join implementation.
+
+---
+
+### 7a (original plan, historical — not what shipped, see §7a-v3). O(n log n) concordance index via Fenwick tree
 
 The current O(n²) `_concordance_index_censored()` double loop is replaced with an O(n log n) algorithm. The test set grows from ~19 rows (~171 pairs) to ~30k+ rows (~450M pairs) — the O(n²) loop becomes infeasible.
 
@@ -493,7 +537,7 @@ def _concordance_index_censored(event_observed, event_time, estimate):
 
 **Why ALL rows (including censored) are inserted into the BIT even though censored current rows don't query**: a future uncensored row (processed later, with a smaller event_time) IS comparable to a previously-inserted censored row with a larger event_time. The uncensored row queries the BIT and must find the censored row there. So censored rows must be inserted when encountered, even though they themselves never query.
 
-### 7b. Mandatory verification step (bit-identical cross-check)
+### 7b (original plan, historical — not what shipped, see §7b-v3). Mandatory verification step (bit-identical cross-check)
 
 The new O(n log n) implementation **must** be verified against the existing O(n²) brute-force on the **current** ~19-row test set **before** the dbt model changes are applied (after the changes, the test set grows to ~30k rows and the O(n²) becomes infeasible). Concrete procedure:
 
@@ -507,6 +551,8 @@ The new O(n log n) implementation **must** be verified against the existing O(n�
 The O(n²) version kept temporarily for this check is the existing `_concordance_index_censored()` function, renamed to `_concordance_index_censored_bruteforce()`.
 
 ### 7c. Trajectory-correlation metric (new, permanent regression guard)
+
+> **Updated 2026-10-03**: the bucket window specified below is 0–144h. As shipped, the window was extended to **0–500h** (bucket width unchanged at 2h), per the same follow-up user direction as the concordance-algorithm change. Rationale was not deeply documented beyond the user's direction; the mechanism (Pearson correlation between bucket center and mean per-bucket prediction) is otherwise unchanged. See §7f for the full note.
 
 This is the single check that would have caught the original bug immediately — a permanent regression guard against inverted-trajectory models.
 
@@ -571,6 +617,8 @@ The full per-row iteration (`for _, r in test_pdf.iterrows()`) is removed. MAE/R
 
 ### 7e. `_read_split` changes
 
+> **Updated 2026-10-03**: the signature below returns a pandas DataFrame. As shipped, `_read_split` returns a **Snowpark DataFrame** instead — see §7g for the full note; this section is kept as historical record of the original plan.
+
 Add `reading_ts` to the select list (needed by the training script for sort, and available in the new table). The evaluation script doesn't use `reading_ts` directly (trajectory correlation buckets by `y_lower`, not `reading_ts`), but including it keeps `_read_split` consistent across both scripts and avoids a subtle drift if the evaluation script ever needs temporal ordering:
 
 ```python
@@ -582,6 +630,23 @@ def _read_split(session, split):
     pdf["any_anomaly_flagged_72h"] = pdf["any_anomaly_flagged_72h"].astype(int)
     return pdf
 ```
+
+### 7f. Trajectory-correlation window: 0–144h → 0–500h (as shipped)
+
+Per user direction in the same follow-up conversation as the concordance-algorithm change (§7a-v3), `TRAJECTORY_WINDOW_HOURS` was raised from 144 to 500 (bucket width stays 2h, so ~250 buckets instead of ~72). This is unrelated to the concordance-algorithm change but lands in the same PR/commit. The mechanism — Pearson correlation between bucket center and mean per-bucket `predicted_hours`, computed server-side on the small bucketed result — is otherwise unchanged from §7c.
+
+### 7g. Full pandas → Snowpark migration (as shipped)
+
+The entire evaluation script was rewritten to be Snowpark-native end-to-end, beyond just the concordance metric:
+
+- `_read_split` (§7e) now returns a **Snowpark DataFrame**, not a pandas DataFrame. Boolean-to-int casts (`is_anomaly`, `any_anomaly_flagged_72h`) are applied via `.with_column(...).cast("int")` instead of pandas `.astype(int)`.
+- Inference runs via `mv.run(test_df, function_name="predict")` directly on the Snowpark DataFrame — confirmed the Model Registry preserves all input columns alongside the prediction column when given a Snowpark DataFrame (`output_with_input_features` behavior), so no `.to_pandas()` round-trip is needed before scoring.
+- MAE / RMSE / median-AE: computed via a single Snowpark `.agg(avg(...), sqrt(avg(pow(...))), median(...))` call, not sklearn calls against a pandas DataFrame.
+- The outlier root-cause check's train-split distribution stats (min/p25/median/p75/max per feature) are computed via one Snowpark aggregation pass over all 22 features, not a full pull of the train split into pandas.
+- Top-10 worst predictions: filtered/sorted/limited server-side (`.order_by(col("abs_error").desc()).limit(10)`), with only the final 10 rows ever collected to Python.
+- `scored_df.cache_result()` is used once after inference so the cached result is reused across the concordance self-join, MAE/RMSE, trajectory correlation, top-10, and outlier check, instead of each metric re-running inference or re-reading the base table.
+
+Net effect: only small, already-aggregated results are ever `.collect()`'d to Python (for string formatting in the return value) — no full-test-set-to-pandas pull happens anywhere in the file. This is a more thorough version of the Snowpark-native spirit the original design implied by moving the concordance computation server-side, extended to every other metric in the same script.
 
 ---
 
@@ -618,7 +683,7 @@ The following files are explicitly **not changed** by this story. Each is verifi
 
 **Modified scripts**:
 - `scripts/06_train_rul_model.sql` — §6 (sort-key fix, optional hyperparameters).
-- `scripts/06b_evaluate_rul_model.sql` — §7 (O(n log n) concordance, trajectory correlation, per-row breakdown format, `_read_split` update).
+- `scripts/06b_evaluate_rul_model.sql` — §7 (concordance via SQL self-join as shipped — §7a-v3/§7b-v3 — plus trajectory correlation at the shipped 0-500h window — §7f — per-row breakdown format, and the full pandas→Snowpark migration — §7g).
 
 **No changes**: `cons__fct_rul_prediction.sql`, `feast__fct_sensor_features_inference.sql`, `cons__fct_anomaly_result.sql`, `feast__fct_sensor_features_train.sql`, `macros/sensor_rolling_features.sql`, `cons__fct_maintenance_event.sql`, `feast__training_dataset_iso.sql`, `manage.py` (pipeline order unchanged — spine and training_dataset_rul are both `feast`-tagged, built in the same phase-1 step they already are).
 
@@ -642,7 +707,7 @@ The following files are explicitly **not changed** by this story. Each is verifi
 
 8. **Sort-key in training**: verify `.sort("equipment_id", "reading_ts")` in `06_train_rul_model.sql`, not the old `.sort("equipment_id", "cycle_end_ts")`.
 
-9. **Concordance cross-check passes**: the O(n log n) and O(n²) implementations must produce bit-identical output on the current ~19-row test set (§7b). `Reviewer-agent` should verify this was actually done (check the return string for the cross-check line) before approving.
+9. **Concordance cross-check passes** (updated 2026-10-03 — see §7a-v3/§7b-v3; this invariant no longer describes the Fenwick-tree/brute-force cross-check originally specified in §7b, which was not what shipped): the SQL self-join implementation (`_concordance_index_self_join`, §7a-v3) must match an independent reference implementation. The actual gate used was a one-off cross-check against `lifelines.utils.concordance_index()` on the full live 32,771-row test set — lifelines = 0.701746, self-join = 0.701800 (matching within floating-point/tie-handling precision) — run via a throwaway stored procedure (`sp_verify_concordance_lifelines`) that was dropped after use and is not part of the committed file. `Reviewer-agent` should verify this cross-check was actually performed (via chat history / PR description, since no cross-check code remains in the file) rather than looking for a bit-identical brute-force comparison in the code itself.
 
 10. **Trajectory correlation is positive and logged**: after the full pipeline runs with the new per-tick training data, `trajectory_correlation` should be strongly positive (> 0.5 at minimum, realistically > 0.9 based on scratchpad results). A negative or near-zero value means the fix didn't work — treat as a blocking finding.
 
