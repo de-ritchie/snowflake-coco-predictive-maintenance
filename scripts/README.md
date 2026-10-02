@@ -106,7 +106,7 @@ snowcomotive_role` in its own SQL, regardless of the connection's login role.
 This section is only about **ad hoc queries run outside `manage.py`**
 (Snowsight worksheets, `snowflake_sql_execute`, a debugging script, etc.).
 
-This account's `chiraj` user has `DEFAULT_ROLE = ACCOUNTADMIN`. Snowflake's
+This account's default-login user typically has `DEFAULT_ROLE = ACCOUNTADMIN`. Snowflake's
 `ACCOUNTADMIN` does **not** automatically inherit SELECT/USAGE access to
 objects owned by another role — and everything this project creates (tables,
 dynamic tables, models, the semantic view, the agent) is owned by
@@ -137,7 +137,7 @@ always get in, regardless of whether `snowcomotive_role` currently exists.
 # before snowcomotive_role exists or right after a teardown.
 [snow-co-cat-alyst]
 account = "<account-identifier>"
-user = "chiraj"
+user = "<your-username>"
 authenticator = "snowflake"
 password = "..."
 
@@ -146,7 +146,7 @@ password = "..."
 # ad hoc queries so you never have to remember `USE ROLE` manually.
 [snow-co-cat-alyst-snowcomotive]
 account = "<account-identifier>"
-user = "chiraj"
+user = "<your-username>"
 authenticator = "snowflake"
 password = "..."
 role = "snowcomotive_role"
@@ -156,3 +156,31 @@ Use the first profile only for `manage.py up`/`down` and anything that must
 work regardless of environment state. Use the second profile for everything
 else — ad hoc SQL, debugging, exploratory queries — so `snowcomotive_role` is
 active automatically without a manual `USE ROLE` step.
+
+## dbt's own connection — separate from `connections.toml` (SH-83)
+
+dbt does not read `~/.snowflake/connections.toml` — it reads
+`predictive_maintenance_dbt/profiles.yml`, which is committed in-repo. That
+file's `account`/`user` fields are templated via dbt's native `env_var()`, no
+default — same fail-loud philosophy as `SNOWFLAKE_CONNECTION_NAME`.
+
+**`manage.py up` derives these for you automatically** (SH-83 follow-up,
+2026-10-02): right after opening its own `connections.toml`-based connection,
+it runs `SELECT CURRENT_ORGANIZATION_NAME() || '-' || CURRENT_ACCOUNT_NAME(),
+CURRENT_USER()` against that live session and exports the result as
+`SNOWFLAKE_DBT_ACCOUNT`/`SNOWFLAKE_DBT_USER` into its own process env, which
+the dbt subprocess calls it shells out to then inherit — no manual export
+needed on this path. It then immediately runs `dbt debug` before any setup
+SQL executes, so a bad dbt connection fails fast instead of partway into the
+pipeline. If you've already exported both vars yourself before running
+`manage.py up` (e.g. to deliberately point dbt at a different account),
+that explicit value is left alone and derivation is skipped.
+
+**A bare/direct `dbt` invocation (not through `manage.py`) still needs both
+exported manually first** — the derivation above only runs inside
+`manage.py`'s own process. For one-off commands like
+`uv run dbt debug --project-dir predictive_maintenance_dbt --profiles-dir predictive_maintenance_dbt`,
+export `SNOWFLAKE_DBT_ACCOUNT=<account-identifier>` and
+`SNOWFLAKE_DBT_USER=<your-username>` first, same as before. This remains
+intentionally separate from the `connections.toml` profiles above — different
+config system, different env vars.
