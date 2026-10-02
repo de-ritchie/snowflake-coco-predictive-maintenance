@@ -5,16 +5,21 @@
     tags=['feast']
 ) }}
 
--- Per-cycle RUL survival spine (S-RUL-1, LLD Module 4 §4a). Cycle boundaries =
--- every CMMS event (PM or BREAKDOWN) per machine -- both reset the wear clock
--- in the generator (Module 2 LLD §5), so both are natural cycle boundaries.
--- Censoring depends on how the cycle ended (Module 2 LLD §6, FR-DG-11):
+-- Per-tick RUL survival spine (S-RUL-1, LLD Module 4 §4a). One row per sensor
+-- tick per maintenance cycle, with per-tick remaining-time labels. Cycle
+-- boundaries = every CMMS event (PM or BREAKDOWN) per machine, plus one
+-- still-open final cycle per machine.
+--
+-- SH-86: changed from per-cycle to per-tick grain to eliminate label leakage
+-- caused by the old 1-row-per-cycle + ASOF-join pattern, where every training
+-- example was an end-of-cycle snapshot whose hours_since_last_service ≈ y_lower
+-- by construction. See docs/designs/SH-86-fix-rul-training-leakage.md §1.
+--
+-- Censoring convention (unchanged from pre-SH-86):
 --   BREAKDOWN-ended -> uncensored, y_upper = y_lower
 --   PM-ended / still-open -> censored, y_upper = NULL
--- y_lower is TRUE OPERATING HOURS, reconstructed by counting feature-table
--- ticks inside the cycle window (0.25h/tick) -- NOT DATEDIFF on event
--- timestamps, which would wrongly include idle/weekend/holiday time that
--- never advances the simulator's own t_hours clock.
+-- y_lower/y_upper are now PER-TICK remaining operating hours to cycle end,
+-- not the cycle's total duration.
 
 WITH events AS (
     SELECT
@@ -33,8 +38,6 @@ closed_cycles AS (
 ),
 
 open_cycles AS (
-    -- still-in-progress final cycle per machine -- right-censored at the end
-    -- of the historical window (FR-DG-11), no closing CMMS event yet
     SELECT
         e.equipment_id,
         MAX(e.event_end_ts) AS cycle_start_ts,
@@ -48,18 +51,36 @@ all_cycles AS (
     SELECT * FROM closed_cycles
     UNION ALL
     SELECT * FROM open_cycles
+),
+
+cycle_ticks AS (
+    SELECT
+        c.equipment_id,
+        c.cycle_end_ts,
+        c.event_type,
+        f.reading_ts,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.equipment_id, c.cycle_end_ts
+            ORDER BY f.reading_ts
+        ) AS tick_position,
+        COUNT(*) OVER (
+            PARTITION BY c.equipment_id, c.cycle_end_ts
+        ) AS n_ticks_in_cycle
+    FROM all_cycles c
+    JOIN {{ ref('cons__dim_equipment') }} eq
+        ON eq.equipment_id = c.equipment_id
+    JOIN {{ ref('feast__fct_sensor_features_train') }} f
+        ON f.equipment_id = c.equipment_id
+        AND f.reading_ts > COALESCE(c.cycle_start_ts, eq.commissioned_ts)
+        AND f.reading_ts <= c.cycle_end_ts
 )
 
 SELECT
-    c.equipment_id,
-    c.cycle_end_ts,
-    COUNT(f.reading_ts) * 0.25                                            AS y_lower,
-    CASE WHEN c.event_type = 'BREAKDOWN' THEN COUNT(f.reading_ts) * 0.25
-         ELSE NULL END                                                     AS y_upper
-FROM all_cycles c
-JOIN {{ ref('cons__dim_equipment') }} eq ON eq.equipment_id = c.equipment_id
-LEFT JOIN {{ ref('feast__fct_sensor_features_train') }} f
-    ON f.equipment_id = c.equipment_id
-    AND f.reading_ts > COALESCE(c.cycle_start_ts, eq.commissioned_ts)
-    AND f.reading_ts <= c.cycle_end_ts
-GROUP BY c.equipment_id, c.cycle_end_ts, c.event_type
+    equipment_id,
+    reading_ts,
+    cycle_end_ts,
+    (n_ticks_in_cycle - tick_position + 1) * 0.25 AS y_lower,
+    CASE WHEN event_type = 'BREAKDOWN'
+         THEN (n_ticks_in_cycle - tick_position + 1) * 0.25
+         ELSE NULL END AS y_upper
+FROM cycle_ticks

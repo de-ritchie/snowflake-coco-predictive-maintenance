@@ -50,15 +50,19 @@ models:
 
   - name: feast__spine_maintenance_cycle
     description: >
-      One row per maintenance cycle per machine (S-RUL-1) -- cycle boundaries
-      are every cons.fct_maintenance_event row (PM or BREAKDOWN both reset
-      the wear clock) plus one still-open final cycle per machine.
-      Right-censored survival labels: y_upper = y_lower for BREAKDOWN-ended
-      cycles (observed failure), NULL for PM-ended/open cycles (censored).
-      y_lower/y_upper are operating hours reconstructed via tick-count against
-      feast.fct_sensor_features_train, not calendar DATEDIFF.
+      One row per sensor tick per maintenance cycle per machine (S-RUL-1,
+      SH-86) -- cycle boundaries are every cons.fct_maintenance_event row
+      (PM or BREAKDOWN both reset the wear clock) plus one still-open final
+      cycle per machine. Right-censored survival labels: y_upper = y_lower
+      for BREAKDOWN-ended cycles (observed failure), NULL for PM-ended/open
+      cycles (censored). y_lower/y_upper are per-tick remaining operating
+      hours to cycle end, reconstructed via tick position within the cycle
+      against feast.fct_sensor_features_train, not calendar DATEDIFF.
     columns:
       - name: equipment_id
+        tests:
+          - not_null
+      - name: reading_ts
         tests:
           - not_null
       - name: cycle_end_ts
@@ -70,16 +74,19 @@ models:
 
   - name: feast__training_dataset_rul
     description: >
-      RUL training set (S-RUL-1/S-RUL-2) -- feast__spine_maintenance_cycle
-      ASOF-joined against feast__fct_sensor_features_train for point-in-time-
-      correct feature attachment as of cycle_end_ts, plus a time-based
-      dataset_split column (FR-FS-03) anchored to MAX(cycle_end_ts) in the
-      data. Also carries the isolation_forest_model's anomaly signal
-      (single-tick is_anomaly/anomaly_score, plus backward-only 72h window
-      aggregates), computed directly against this table's own frozen feature
-      snapshot -- not read from cons.fct_anomaly_result (SH-50).
+      RUL training set (S-RUL-1/S-RUL-2, SH-86) -- feast__spine_maintenance_cycle
+      (one row per tick per cycle) equi-joined against feast__fct_sensor_features_train
+      for exact per-tick feature attachment, plus sliding 72h anomaly window
+      aggregates (matching cons__fct_rul_prediction.sql's inference-side pattern),
+      plus a time-based dataset_split column (FR-FS-03) anchored to MAX(cycle_end_ts)
+      in the data. Also carries the isolation_forest_model's anomaly signal
+      (single-tick is_anomaly/anomaly_score, computed directly against this table's
+      own frozen feature snapshot -- not read from cons.fct_anomaly_result, SH-50).
     columns:
       - name: equipment_id
+        tests:
+          - not_null
+      - name: reading_ts
         tests:
           - not_null
       - name: cycle_end_ts
@@ -101,8 +108,20 @@ models:
         tests:
           - not_null
       - name: any_anomaly_flagged_72h
-        description: NULL only for the extreme cold-start case (zero ticks in the 72h window).
+        description: >
+          Sliding 72h window aggregate (ROWS BETWEEN 287 PRECEDING) -- never
+          NULL with the sliding-window approach (early ticks get a smaller
+          effective window, not NULL).
+        tests:
+          - not_null
       - name: min_anomaly_score_72h
-        description: NULL only for the extreme cold-start case (zero ticks in the 72h window).
+        description: >
+          Sliding 72h window aggregate -- never NULL (same reasoning as
+          any_anomaly_flagged_72h).
+        tests:
+          - not_null
       - name: pct_anomalous_ticks_72h
-        description: NULL only for the extreme cold-start case (zero ticks in the 72h window); otherwise within [0, 1].
+        description: >
+          Sliding 72h window aggregate, within [0, 1]. Never NULL.
+        tests:
+          - not_null

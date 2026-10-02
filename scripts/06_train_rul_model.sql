@@ -63,12 +63,15 @@ def train(session):
 
     # SH-73: explicit stable sort before to_pandas() -- same non-determinism
     # fix as 05_train_models.sql's isolation forest training (Snowflake does
-    # not guarantee row order for a SELECT without ORDER BY). Sorted by
-    # equipment_id, cycle_end_ts (this table's own stable per-row key --
-    # reading_ts isn't selected here, see feat.* EXCLUDE above).
+    # not guarantee row order for a SELECT without ORDER BY).
+    # SH-86: sort key changed from (equipment_id, cycle_end_ts) to
+    # (equipment_id, reading_ts) -- many ticks now share one cycle_end_ts
+    # under the per-tick grain. reading_ts is included in select so the sort
+    # column is available, then excluded from DMatrix via feature_cols.
     train_pdf = (
-        train_df.sort("equipment_id", "cycle_end_ts")
-        .select(feature_cols + ["y_lower", "y_upper"])
+        train_df
+        .select(feature_cols + ["y_lower", "y_upper", "reading_ts"])
+        .sort("equipment_id", "reading_ts")
         .to_pandas()
     )
     train_pdf.columns = [c.lower() for c in train_pdf.columns]
@@ -89,10 +92,12 @@ def train(session):
         "aft_loss_distribution_scale": 1.0,
         "tree_method": "hist",
         "max_depth": 4,
+        "eta": 0.05,       # SH-86: lower learning rate (default 0.3 was unset),
+                            # empirically validated with per-tick training data
         "seed": 42,  # SH-73: was previously unset -- combined with the sort
         # fix above, makes this model's training fully reproducible run-to-run.
     }
-    booster = xgb.train(params, dtrain, num_boost_round=100)
+    booster = xgb.train(params, dtrain, num_boost_round=200)  # SH-86: raised from 100
 
     registry = Registry(session=session, database_name="SNOWCOMOTIVE", schema_name="CONS")
     version_name = "V_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
