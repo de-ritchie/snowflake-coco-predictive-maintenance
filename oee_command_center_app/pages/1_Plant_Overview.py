@@ -13,7 +13,9 @@ See mockup_v2/DATA_MAP.md for the full element-to-query mapping.
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from streamlit_app import get_connection, render_sidebar, require_persona
 
@@ -162,18 +164,48 @@ def load_asset_risk(line_filter: str) -> pd.DataFrame:
     )
 
 
-def load_historical_revenue_loss() -> pd.DataFrame:
-    """SH-85 §4.1: per-line historical realized $ impact (always all lines)."""
+def load_historical_revenue_loss(period_grain: str) -> pd.DataFrame:
+    """SH-85 follow-up: per-line Lost Revenue for the current week/month, with
+    a prior-period value for the delta -- same LAG() pattern as load_kpi_data/
+    load_kpi_data_monthly. Uses cons__fct_oee as a calendar spine so periods
+    with zero breakdowns correctly show $0 instead of being missing rows
+    (cons__fct_historical_dollar_impact only has rows for actual events).
+    """
     conn = get_connection()
     return conn.query(
-        """
-        SELECT
-            eq.line_name,
-            SUM(de.historical_realized_impact_usd) AS lost_revenue
-        FROM cons.cons__fct_dollar_exposure de
-        JOIN cons.cons__dim_equipment eq
-            ON eq.equipment_id = de.equipment_id
-        GROUP BY eq.line_name
+        f"""
+        WITH period_loss AS (
+            SELECT
+                eq.line_name,
+                DATE_TRUNC('{period_grain}', hdi.event_start_ts) AS period,
+                SUM(hdi.event_realized_impact_usd) AS lost_revenue
+            FROM cons.cons__fct_historical_dollar_impact hdi
+            JOIN cons.cons__dim_equipment eq
+                ON eq.equipment_id = hdi.equipment_id
+            GROUP BY 1, 2
+        ),
+        spine AS (
+            SELECT DISTINCT line_name, DATE_TRUNC('{period_grain}', period_week) AS period
+            FROM cons.cons__fct_oee
+            WHERE period_week <= CURRENT_DATE()
+        ),
+        joined AS (
+            SELECT s.line_name, s.period, COALESCE(pl.lost_revenue, 0) AS lost_revenue
+            FROM spine s
+            LEFT JOIN period_loss pl
+                ON pl.line_name = s.line_name AND pl.period = s.period
+        ),
+        ranked AS (
+            SELECT
+                line_name,
+                period,
+                lost_revenue,
+                LAG(lost_revenue) OVER (PARTITION BY line_name ORDER BY period) AS prev_lost_revenue
+            FROM joined
+        )
+        SELECT *
+        FROM ranked
+        WHERE period = (SELECT MAX(period) FROM spine)
         """,
         ttl=0,
     )
@@ -209,6 +241,45 @@ def load_oee_trend(line_filter: str) -> pd.DataFrame:
     )
     df["PERIOD_WEEK"] = pd.to_datetime(df["PERIOD_WEEK"])
     df["OEE_PCT"] = df["OEE_PCT"] * 100
+    return df
+
+
+def load_lost_revenue_trend(line_filter: str) -> pd.DataFrame:
+    """SH-85 follow-up: trailing-3-month weekly Lost Revenue trend per line,
+    same window/line_clause pattern as load_oee_trend. Uses cons__fct_oee as a
+    calendar spine so weeks with zero breakdowns correctly plot as $0.
+    """
+    conn = get_connection()
+    line_clause = "" if line_filter == "All Lines" else f"AND line_name = '{line_filter}'"
+    df = conn.query(
+        f"""
+        WITH period_loss AS (
+            SELECT
+                eq.line_name,
+                DATE_TRUNC('week', hdi.event_start_ts) AS period_week,
+                SUM(hdi.event_realized_impact_usd) AS lost_revenue
+            FROM cons.cons__fct_historical_dollar_impact hdi
+            JOIN cons.cons__dim_equipment eq
+                ON eq.equipment_id = hdi.equipment_id
+            GROUP BY 1, 2
+        ),
+        spine AS (
+            SELECT DISTINCT line_name, period_week
+            FROM cons.cons__fct_oee
+            WHERE period_week >= DATEADD(month, -3,
+                (SELECT MAX(period_week) FROM cons.cons__fct_oee WHERE period_week <= CURRENT_DATE()))
+              AND period_week <= CURRENT_DATE()
+              {line_clause}
+        )
+        SELECT s.line_name, s.period_week, COALESCE(pl.lost_revenue, 0) AS lost_revenue
+        FROM spine s
+        LEFT JOIN period_loss pl
+            ON pl.line_name = s.line_name AND pl.period_week = s.period_week
+        ORDER BY s.line_name, s.period_week
+        """,
+        ttl=0,
+    )
+    df["PERIOD_WEEK"] = pd.to_datetime(df["PERIOD_WEEK"])
     return df
 
 
@@ -248,48 +319,79 @@ qual_pct = float(kpi_df["QUALITY_PCT"].iloc[0])
 
 kpi_cols = st.columns(4)
 with kpi_cols[0]:
-    st.metric(
-        "OEE",
-        f"{plant_oee * 100:.1f}%",
-        delta=f"{(plant_oee - prev_oee) * 100:+.1f}pp vs. prior {period_label}",
-    )
+    with st.container(border=True):
+        st.metric(
+            "OEE",
+            f"{plant_oee * 100:.1f}%",
+            delta=f"{(plant_oee - prev_oee) * 100:+.1f}pp vs. prior {period_label}",
+        )
 with kpi_cols[1]:
-    st.metric(
-        "Availability",
-        f"{plant_avail * 100:.1f}%",
-        delta=f"{(plant_avail - prev_avail) * 100:+.1f}pp vs. prior {period_label}",
-    )
+    with st.container(border=True):
+        st.metric(
+            "Availability",
+            f"{plant_avail * 100:.1f}%",
+            delta=f"{(plant_avail - prev_avail) * 100:+.1f}pp vs. prior {period_label}",
+        )
 with kpi_cols[2]:
-    st.metric("Performance", f"{perf_pct * 100:.1f}%", delta=f"0.0pp vs. prior {period_label}")
+    with st.container(border=True):
+        st.metric("Performance", f"{perf_pct * 100:.1f}%", delta=f"0.0pp vs. prior {period_label}")
 with kpi_cols[3]:
-    st.metric("Quality", f"{qual_pct * 100:.1f}%", delta=f"0.0pp vs. prior {period_label}")
+    with st.container(border=True):
+        st.metric("Quality", f"{qual_pct * 100:.1f}%", delta=f"0.0pp vs. prior {period_label}")
 
-# --- Section A2: Historical Revenue Loss (SH-85 §4.4) ----------------------
+# --- Section A2: Lost Revenue (SH-85 follow-up) -----------------------------
 
-st.subheader("Historical Revenue Loss")
-
-loss_df = load_historical_revenue_loss()
+period_grain = "month" if granularity == "Monthly" else "week"
+loss_df = load_historical_revenue_loss(period_grain)
 if not loss_df.empty:
     overall = loss_df["LOST_REVENUE"].sum()
-    lines = loss_df.set_index("LINE_NAME")["LOST_REVENUE"].to_dict()
+    prev_overall = loss_df["PREV_LOST_REVENUE"].fillna(0).sum()
+    lines = loss_df.set_index("LINE_NAME")[["LOST_REVENUE", "PREV_LOST_REVENUE"]].to_dict("index")
+
+    def loss_delta(current: float, prev: float) -> str:
+        prev = prev or 0
+        diff = current - prev
+        sign = "+" if diff >= 0 else "-"
+        return f"{sign}{fmt_dollar(abs(diff))} vs. prior {period_label}"
+
+    def loss_delta_color(current: float, prev: float) -> str:
+        """No change at all should read as neutral, not red/green."""
+        return "off" if current == (prev or 0) else "inverse"
+
+    line_card_label = {"Caliper": "Lost Revenue - Caliper Line", "Engine Head": "Lost Revenue - Engine Head Line"}
 
     if line_filter == "All Lines":
         cols = st.columns(3)
         with cols[0]:
-            st.metric("Overall", fmt_dollar(overall))
-        for i, (name, val) in enumerate(lines.items()):
+            with st.container(border=True):
+                st.metric("Overall Lost Revenue", fmt_dollar(overall), delta=loss_delta(overall, prev_overall), delta_color=loss_delta_color(overall, prev_overall))
+        for i, (name, vals) in enumerate(lines.items()):
             with cols[i + 1]:
-                st.metric(f"{name} Line", fmt_dollar(val))
+                with st.container(border=True):
+                    st.metric(
+                        line_card_label.get(name, f"Lost Revenue - {name} Line"),
+                        fmt_dollar(vals["LOST_REVENUE"]),
+                        delta=loss_delta(vals["LOST_REVENUE"], vals["PREV_LOST_REVENUE"]),
+                        delta_color=loss_delta_color(vals["LOST_REVENUE"], vals["PREV_LOST_REVENUE"]),
+                    )
     else:
         cols = st.columns(2)
         with cols[0]:
-            st.metric("Overall (plant-wide)", fmt_dollar(overall))
+            with st.container(border=True):
+                st.metric("Overall Lost Revenue", fmt_dollar(overall), delta=loss_delta(overall, prev_overall), delta_color=loss_delta_color(overall, prev_overall))
         with cols[1]:
-            st.metric(f"{line_filter} Line", fmt_dollar(lines.get(line_filter, 0)))
+            line_vals = lines.get(line_filter, {"LOST_REVENUE": 0, "PREV_LOST_REVENUE": 0})
+            with st.container(border=True):
+                st.metric(
+                    line_card_label.get(line_filter, f"Lost Revenue - {line_filter} Line"),
+                    fmt_dollar(line_vals["LOST_REVENUE"]),
+                    delta=loss_delta(line_vals["LOST_REVENUE"], line_vals["PREV_LOST_REVENUE"]),
+                    delta_color=loss_delta_color(line_vals["LOST_REVENUE"], line_vals["PREV_LOST_REVENUE"]),
+                )
 
 # --- Section B: Asset Risk Summary ------------------------------------------
 
-st.subheader("Asset Risk Summary")
+st.subheader("Predicted Asset Risk Summary")
 
 asset_df = load_asset_risk(line_filter)
 if not asset_df.empty:
@@ -302,7 +404,7 @@ if not asset_df.empty:
                 st.caption(f"{row['LINE_NAME']} line")
             with c_dollar:
                 dar = row["FORWARD_DOLLAR_AT_RISK_USD"]
-                st.metric("$ at Risk", fmt_dollar(dar) if pd.notna(dar) else "$0")
+                st.metric("Potential $ at Risk", fmt_dollar(dar) if pd.notna(dar) else "$0")
             with c2:
                 st.metric("RUL", f"{row['PREDICTED_RUL_HOURS']:.0f} hrs")
             with c3:
@@ -313,28 +415,46 @@ if not asset_df.empty:
             with c5:
                 st.markdown(render_badge(status), unsafe_allow_html=True)
 
-# --- Section D: Historical OEE Trend ----------------------------------------
+# --- Section D: Historical OEE & Lost Revenue -------------------------------
 
-st.subheader("Historical OEE")
+st.subheader("Historical OEE & Lost Revenue")
 
 oee_df = load_oee_trend(line_filter)
-if oee_df.empty:
-    st.write("No OEE trend data available.")
-else:
-    if granularity == "Monthly":
-        plot_df = oee_df.copy()
-        plot_df["PERIOD_MONTH"] = plot_df["PERIOD_WEEK"].dt.to_period("M").dt.to_timestamp()
-        plot_df = (
-            plot_df.groupby(["LINE_NAME", "PERIOD_MONTH"], as_index=False)
-            .agg(OEE_PCT=("OEE_PCT", "mean"))
-        )
-        fig = px.line(plot_df, x="PERIOD_MONTH", y="OEE_PCT", color="LINE_NAME",
-                      labels={"OEE_PCT": "OEE %", "PERIOD_MONTH": "Month", "LINE_NAME": "Line"},
-                      markers=True)
-    else:
-        fig = px.line(oee_df, x="PERIOD_WEEK", y="OEE_PCT", color="LINE_NAME",
-                      labels={"OEE_PCT": "OEE %", "PERIOD_WEEK": "Week", "LINE_NAME": "Line"},
-                      markers=True)
+loss_trend_df = load_lost_revenue_trend(line_filter)
 
-    fig.update_layout(yaxis_title="OEE %")
-    st.plotly_chart(fig, use_container_width=True)
+if not oee_df.empty and not loss_trend_df.empty:
+    if granularity == "Monthly":
+        oee_combined = oee_df.copy()
+        oee_combined["PERIOD"] = oee_combined["PERIOD_WEEK"].dt.to_period("M").dt.to_timestamp()
+        oee_combined = (
+            oee_combined.groupby(["LINE_NAME", "PERIOD"], as_index=False).agg(OEE_PCT=("OEE_PCT", "mean"))
+        )
+        loss_combined = loss_trend_df.copy()
+        loss_combined["PERIOD"] = loss_combined["PERIOD_WEEK"].dt.to_period("M").dt.to_timestamp()
+        loss_combined = (
+            loss_combined.groupby(["LINE_NAME", "PERIOD"], as_index=False).agg(LOST_REVENUE=("LOST_REVENUE", "sum"))
+        )
+    else:
+        oee_combined = oee_df.rename(columns={"PERIOD_WEEK": "PERIOD"})
+        loss_combined = loss_trend_df.rename(columns={"PERIOD_WEEK": "PERIOD"})
+
+    line_colors = {"Caliper": "#1f77b4", "Engine Head": "#ff7f0e"}
+    combo_fig = make_subplots(specs=[[{"secondary_y": True}]])
+    for line in oee_combined["LINE_NAME"].unique():
+        d = oee_combined[oee_combined["LINE_NAME"] == line]
+        combo_fig.add_trace(
+            go.Scatter(x=d["PERIOD"], y=d["OEE_PCT"], name=f"{line} OEE %", mode="lines+markers",
+                       line=dict(color=line_colors.get(line), dash="solid")),
+            secondary_y=False,
+        )
+    for line in loss_combined["LINE_NAME"].unique():
+        d = loss_combined[loss_combined["LINE_NAME"] == line]
+        combo_fig.add_trace(
+            go.Scatter(x=d["PERIOD"], y=d["LOST_REVENUE"], name=f"{line} Lost Revenue ($)", mode="lines+markers",
+                       line=dict(color=line_colors.get(line), dash="dot")),
+            secondary_y=True,
+        )
+    combo_fig.update_yaxes(title_text="OEE %", secondary_y=False)
+    combo_fig.update_yaxes(title_text="Lost Revenue ($)", secondary_y=True)
+    combo_fig.update_xaxes(title_text="Month" if granularity == "Monthly" else "Week")
+    st.plotly_chart(combo_fig, use_container_width=True)
