@@ -63,12 +63,15 @@ def train(session):
 
     # SH-73: explicit stable sort before to_pandas() -- same non-determinism
     # fix as 05_train_models.sql's isolation forest training (Snowflake does
-    # not guarantee row order for a SELECT without ORDER BY). Sorted by
-    # equipment_id, cycle_end_ts (this table's own stable per-row key --
-    # reading_ts isn't selected here, see feat.* EXCLUDE above).
+    # not guarantee row order for a SELECT without ORDER BY).
+    # SH-86: sort key changed from (equipment_id, cycle_end_ts) to
+    # (equipment_id, reading_ts) -- many ticks now share one cycle_end_ts
+    # under the per-tick grain. reading_ts is included in select so the sort
+    # column is available, then excluded from DMatrix via feature_cols.
     train_pdf = (
-        train_df.sort("equipment_id", "cycle_end_ts")
-        .select(feature_cols + ["y_lower", "y_upper"])
+        train_df
+        .select(feature_cols + ["y_lower", "y_upper", "reading_ts"])
+        .sort("equipment_id", "reading_ts")
         .to_pandas()
     )
     train_pdf.columns = [c.lower() for c in train_pdf.columns]
@@ -89,10 +92,12 @@ def train(session):
         "aft_loss_distribution_scale": 1.0,
         "tree_method": "hist",
         "max_depth": 4,
+        "eta": 0.05,       # SH-86: lower learning rate (default 0.3 was unset),
+                            # empirically validated with per-tick training data
         "seed": 42,  # SH-73: was previously unset -- combined with the sort
         # fix above, makes this model's training fully reproducible run-to-run.
     }
-    booster = xgb.train(params, dtrain, num_boost_round=100)
+    booster = xgb.train(params, dtrain, num_boost_round=200)  # SH-86: raised from 100
 
     registry = Registry(session=session, database_name="SNOWCOMOTIVE", schema_name="CONS")
     version_name = "V_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -100,7 +105,19 @@ def train(session):
         booster,
         model_name="rul_aft_model",
         version_name=version_name,
-        sample_input_data=train_pdf[feature_cols].head(1000),
+        # SH-86: random sample, not head(1000) -- train_pdf is sorted by
+        # (equipment_id, reading_ts) for the stable-sort/reproducibility fix
+        # above, so a head() sample is just the earliest ticks of the
+        # alphabetically-first equipment. Each equipment's very first cycle
+        # (before its first-ever maintenance event) has NULL
+        # hours_since_last_service for every tick in that stretch (confirmed
+        # empirically: CNC_BORING alone has 924 consecutive NULL ticks at
+        # the start of its history) -- a head(1000) sample landed entirely
+        # inside that NULL block and broke the Registry's signature
+        # inference ("no non-null data in column hours_since_last_service").
+        # A random sample draws from across all equipment/time ranges, so it
+        # reliably picks up non-null values in every column.
+        sample_input_data=train_pdf[feature_cols].sample(n=min(1000, len(train_pdf)), random_state=42),
         options={
             "enable_explainability": True,
             "embed_local_ml_library": True,  # same reason as isolation_forest_model --
