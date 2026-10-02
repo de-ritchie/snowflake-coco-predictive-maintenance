@@ -132,6 +132,62 @@ models:
         tests:
           - not_null
 
+  - name: cons__fct_historical_dollar_impact
+    description: >
+      Historical realized $ impact per equipment (SH-84 §3.1) — actual past $
+      lost to unplanned downtime, computed from CMMS breakdown events ×
+      demand-capped throughput × per-product unit margin. View over static tables.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: historical_realized_impact_usd
+        tests:
+          - not_null
+
+  - name: cons__fct_forward_dollar_at_risk
+    description: >
+      Forward-looking $ at risk per equipment (SH-84 §3.2) — projected $
+      exposure if machines with predicted_rul_hours < 672 (4 weeks) fail
+      before meeting demand. Dynamic table, DOWNSTREAM.
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('cons__dim_equipment')
+                field: equipment_id
+      - name: score_ts
+        tests:
+          - not_null
+      - name: forward_dollar_at_risk_usd
+        tests:
+          - not_null
+
+  - name: cons__fct_dollar_exposure
+    description: >
+      Dollar-exposure combiner (SH-84 §3.3) — thin join of historical
+      realized impact (view) and forward $ at risk (dynamic DOWNSTREAM).
+      New single leaf of the dynamic-table chain (target_lag=var('target_lag')).
+    columns:
+      - name: equipment_id
+        tests:
+          - not_null
+          - unique
+      - name: historical_realized_impact_usd
+        tests:
+          - not_null
+      - name: forward_dollar_at_risk_usd
+        tests:
+          - not_null
+
   - name: cons__fct_maintenance_event
     description: "Lean pass-through of STD.CMMS_LOG -- 1 row / event, both PM and BREAKDOWN included."
     columns:

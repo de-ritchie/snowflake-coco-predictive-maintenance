@@ -43,8 +43,8 @@ seeds:
 vars:
   oee_performance_pct: "{{ env_var('OEE_PERFORMANCE_PCT', '0.98') }}"
   oee_quality_pct: "{{ env_var('OEE_QUALITY_PCT', '0.97') }}"
-  # Dynamic-table refresh cadence for the pipeline's one leaf table
-  # (cons__fct_priority_score) -- the 5 upstream tables are all
+  # Dynamic-table refresh cadence for the pipeline's leaf table
+  # (cons__fct_dollar_exposure, SH-84) -- all upstream tables are
   # target_lag=DOWNSTREAM and derive their own cadence from this value
   # (SH-72). Snowflake's real minimum is 60 seconds.
   target_lag: "{{ env_var('DYNAMIC_TABLE_TARGET_LAG', '1 hour') }}"
