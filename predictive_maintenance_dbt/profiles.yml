@@ -1,14 +1,14 @@
 predictive_maintenance_dbt:
   outputs:
     dev:
-      account: TXGARWX-WGC57712
+      account: "{{ env_var('SNOWFLAKE_DBT_ACCOUNT') }}"
       authenticator: oauth_authorization_code
       database: SNOWCOMOTIVE
       role: SNOWCOMOTIVE_ROLE
       schema: RAW
       threads: 1
       type: snowflake
-      user: CHIRAJ
+      user: "{{ env_var('SNOWFLAKE_DBT_USER') }}"
       warehouse: SNOWCOMOTIVE_WH
 
   target: dev

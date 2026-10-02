@@ -24,7 +24,12 @@
 -- --- Role, warehouse, database, schemas (S-ENV-1) ---
 
 CREATE ROLE IF NOT EXISTS snowcomotive_role;
-GRANT ROLE snowcomotive_role TO USER CHIRAJ;
+-- Grants to whoever is actually running this script, dynamically -- no
+-- hardcoded username, no env var needed. `IDENTIFIER(CURRENT_USER())` alone
+-- does not parse for GRANT...TO USER; the SET + IDENTIFIER($var) form does
+-- (confirmed live, SH-83).
+SET my_user = CURRENT_USER();
+GRANT ROLE snowcomotive_role TO USER IDENTIFIER($my_user);
 
 CREATE WAREHOUSE IF NOT EXISTS snowcomotive_wh
   WAREHOUSE_SIZE = 'XSMALL'
