@@ -1,0 +1,5 @@
+{
+  "name": "human-gated-sdlc-toolkit",
+  "description": "A table-agnostic, human-gated SDLC toolkit for Snowflake/dbt projects: a Genesis agent that brainstorms and freezes a BRD->FRD->HLD->LLD doc stack (with an explicit validation pass) and records your project's own config in AGENTS.md, plus Design/Developer/Reviewer/Documenter content agents chained manually by the user story-by-story, plus a Jira-Triage agent (with its dev-workflow skill) that is the sole agent allowed to touch git/Jira. No agent auto-chains to the next stage or spawns another agent -- every handoff is a deliberate user action. None of the agents hardcode a specific project's Jira cloudId/site/project key -- they read it from your own project's AGENTS.md. See SETUP.md for exactly which AGENTS.md fields are required and how to fill them in (via genesis-agent, or by hand).",
+  "version": "0.2.0"
+}
