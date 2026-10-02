@@ -1,16 +1,16 @@
 {{ config(materialized='view', schema='cons', tags=['consumption']) }}
 
--- Historical realized $ impact per equipment (SH-84 §3.1).
+-- Historical realized $ impact per breakdown event (SH-85 §3.1 — grain changed
+-- from equipment-level to event-level so the semantic layer can trend by any
+-- time period at query time).
 WITH breakdown_impact AS (
     SELECT
         me.equipment_id,
         me.event_start_ts,
         me.duration_hours,
         eq.throughput_units_per_hour,
-        eq.product_id,
-        eq.variant,
         p.unit_margin,
-        o.order_units AS order_units_that_week,
+        COALESCE(o.order_units, 0) AS order_units_that_week,
         LEAST(
             me.duration_hours * eq.throughput_units_per_hour,
             COALESCE(o.order_units, 0)
@@ -30,8 +30,10 @@ WITH breakdown_impact AS (
 
 SELECT
     equipment_id,
-    COUNT(*) AS breakdown_count,
-    SUM(duration_hours) AS total_breakdown_hours,
-    SUM(event_realized_impact_usd) AS historical_realized_impact_usd
+    event_start_ts,
+    duration_hours,
+    throughput_units_per_hour,
+    order_units_that_week,
+    unit_margin,
+    event_realized_impact_usd
 FROM breakdown_impact
-GROUP BY equipment_id

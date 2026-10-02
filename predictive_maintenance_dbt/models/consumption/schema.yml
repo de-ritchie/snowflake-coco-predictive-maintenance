@@ -134,19 +134,22 @@ models:
 
   - name: cons__fct_historical_dollar_impact
     description: >
-      Historical realized $ impact per equipment (SH-84 §3.1) — actual past $
-      lost to unplanned downtime, computed from CMMS breakdown events ×
-      demand-capped throughput × per-product unit margin. View over static tables.
+      Historical realized $ impact per breakdown event (SH-85 §3.1 — grain
+      changed from equipment-level to event-level). One row per
+      (equipment_id, event_start_ts). Demand-capped throughput × unit margin.
+      View over static tables.
     columns:
       - name: equipment_id
         tests:
           - not_null
-          - unique
           - relationships:
               arguments:
                 to: ref('cons__dim_equipment')
                 field: equipment_id
-      - name: historical_realized_impact_usd
+      - name: event_start_ts
+        tests:
+          - not_null
+      - name: event_realized_impact_usd
         tests:
           - not_null
 

@@ -128,7 +128,7 @@ def load_kpi_data_monthly(line_filter: str) -> pd.DataFrame:
 
 
 def load_asset_risk(line_filter: str) -> pd.DataFrame:
-    """PD-B1 through PD-B6: combined asset risk query."""
+    """PD-B1 through PD-B6: combined asset risk query (SH-85: +forward $ at risk)."""
     conn = get_connection()
     line_clause = "" if line_filter == "All Lines" else f"AND eq.line_name = '{line_filter}'"
     return conn.query(
@@ -145,18 +145,46 @@ def load_asset_risk(line_filter: str) -> pd.DataFrame:
             eq.line_name,
             ps.predicted_rul_hours,
             ls.hours_since_last_service,
-            ps.priority_score
+            ps.priority_score,
+            de.forward_dollar_at_risk_usd
         FROM cons.cons__fct_priority_score ps
         JOIN cons.cons__dim_equipment eq
             ON eq.equipment_id = ps.equipment_id
         LEFT JOIN latest_service ls
             ON ls.equipment_id = ps.equipment_id
+        LEFT JOIN cons.cons__fct_dollar_exposure de
+            ON de.equipment_id = ps.equipment_id
         WHERE 1=1
           {line_clause}
         ORDER BY ps.priority_score DESC
         """,
         ttl=0,  # real-time: no caching (SH-75 follow-up)
     )
+
+
+def load_historical_revenue_loss() -> pd.DataFrame:
+    """SH-85 §4.1: per-line historical realized $ impact (always all lines)."""
+    conn = get_connection()
+    return conn.query(
+        """
+        SELECT
+            eq.line_name,
+            SUM(de.historical_realized_impact_usd) AS lost_revenue
+        FROM cons.cons__fct_dollar_exposure de
+        JOIN cons.cons__dim_equipment eq
+            ON eq.equipment_id = de.equipment_id
+        GROUP BY eq.line_name
+        """,
+        ttl=0,
+    )
+
+
+def fmt_dollar(val: float) -> str:
+    if abs(val) >= 1_000_000:
+        return f"${val / 1_000_000:.1f}M"
+    if abs(val) >= 1_000:
+        return f"${val / 1_000:.1f}k"
+    return f"${val:,.0f}"
 
 
 def load_oee_trend(line_filter: str) -> pd.DataFrame:
@@ -236,6 +264,29 @@ with kpi_cols[2]:
 with kpi_cols[3]:
     st.metric("Quality", f"{qual_pct * 100:.1f}%", delta=f"0.0pp vs. prior {period_label}")
 
+# --- Section A2: Historical Revenue Loss (SH-85 §4.4) ----------------------
+
+st.subheader("Historical Revenue Loss")
+
+loss_df = load_historical_revenue_loss()
+if not loss_df.empty:
+    overall = loss_df["LOST_REVENUE"].sum()
+    lines = loss_df.set_index("LINE_NAME")["LOST_REVENUE"].to_dict()
+
+    if line_filter == "All Lines":
+        cols = st.columns(3)
+        with cols[0]:
+            st.metric("Overall", fmt_dollar(overall))
+        for i, (name, val) in enumerate(lines.items()):
+            with cols[i + 1]:
+                st.metric(f"{name} Line", fmt_dollar(val))
+    else:
+        cols = st.columns(2)
+        with cols[0]:
+            st.metric("Overall (plant-wide)", fmt_dollar(overall))
+        with cols[1]:
+            st.metric(f"{line_filter} Line", fmt_dollar(lines.get(line_filter, 0)))
+
 # --- Section B: Asset Risk Summary ------------------------------------------
 
 st.subheader("Asset Risk Summary")
@@ -245,10 +296,13 @@ if not asset_df.empty:
     for _, row in asset_df.iterrows():
         status = health_status(float(row["PRIORITY_SCORE"]))
         with st.container(border=True):
-            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 2])
+            c1, c_dollar, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 2, 2])
             with c1:
                 st.markdown(f"**{row['EQUIPMENT_NAME']}**")
                 st.caption(f"{row['LINE_NAME']} line")
+            with c_dollar:
+                dar = row["FORWARD_DOLLAR_AT_RISK_USD"]
+                st.metric("$ at Risk", fmt_dollar(dar) if pd.notna(dar) else "$0")
             with c2:
                 st.metric("RUL", f"{row['PREDICTED_RUL_HOURS']:.0f} hrs")
             with c3:
