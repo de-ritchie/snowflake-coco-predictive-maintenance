@@ -186,7 +186,7 @@ Traces to: FR-FS-02/03/04/05, LLD Module 4 §4, Module 5 §2/§3. Also updates t
 | **S-RUL-1**: Training spine + split | `FEAST.SPINE_MAINTENANCE_CYCLE`, `TRAINING_DATASET_RUL` with time-based `dataset_split` (Module 4 §4a). |
 | **S-RUL-2**: Wire anomaly output into RUL features | Join `is_anomaly`/`anomaly_score` into `TRAINING_DATASET_RUL` (Module 4/5's flagged open item). |
 | **S-RUL-3**: Train RUL AFT model | DMatrix construction, `objective=survival:aft`, explicit `volatility=IMMUTABLE` logging (Module 5 §2). |
-| **S-RUL-4**: Evaluation | Concordance index + MAE on uncensored subset, logged as Model Registry metrics (Module 5 §3). |
+| **S-RUL-4**: Evaluation | Concordance index + MAE on uncensored subset, logged as Model Registry metrics (Module 5 §3). **SH-86** fixed a training/inference leakage bug found here (end-of-cycle-only snapshot sampling let `hours_since_last_service` leak the label, inverting predicted RUL) via per-tick labeling, and migrated most of the evaluation script's metric computation from pandas to Snowpark (concordance index now a SQL self-join, cross-checked against `lifelines`). Full detail: `docs/designs/SH-86-fix-rul-training-leakage.md`. **SH-87** (open): apply the same pandas-to-Snowpark cleanup to the sibling IsolationForest evaluation script (`scripts/06c_evaluate_iso_model.sql`), which still uses pandas `.iterrows()`/`groupby` for per-cycle catch-rate, per-machine breakdown, and 72h-window precision/recall/FPR. |
 | **S-RUL-5**: RUL inference dynamic table | `CONS.FCT_RUL_PREDICTION` (Module 1, FR-FS-07). |
 | **S-RUL-6**: Priority score | `CONS.FCT_PRIORITY_SCORE` dynamic table, HLD §5 formula (FR-FS-08). |
 | **S-RUL-7**: Forecast OEE page + Priority Queue page | Streamlit (Module 8 §2/§3, FR-CC-02/03). |
