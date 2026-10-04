@@ -18,8 +18,8 @@ This solution predicts failures early and converges that risk with business cont
 
 | Persona | Primary need | What their agent can do |
 |---|---|---|
-| **Maintenance Supervisor** | Triage alerts, understand root cause, act immediately | Root-cause explanation, sensor drill-down, **creates a Jira ticket directly** |
-| **Production Planner** | OEE trend/forecast, demand- and inventory-aware prioritization | Prioritization reasoning, forecast queries, ticket **request/escalation** |
+| **Maintenance Supervisor** | Triage alerts, understand root cause, act immediately | Root-cause explanation, sensor drill-down, **creates a Jira ticket directly** — the only persona with Jira access |
+| **Production Planner** | OEE trend/forecast, demand- and inventory-aware prioritization | Prioritization reasoning, forecast queries — **no ticketing tool** |
 | **Plant Manager** | Plant-level rollup of OEE, risk, and $ impact | Read-only Q&A — **no ticketing tool** |
 
 See [`docs/01-BRD.md`](docs/01-BRD.md) for the full business requirements.
@@ -28,7 +28,7 @@ See [`docs/01-BRD.md`](docs/01-BRD.md) for the full business requirements.
 
 ## Architecture
 
-![Reference architecture](presentation/CoCoHack-Arch.jpg)
+![Reference architecture](docs/CoCoHack-Arch.jpg)
 
 Left to right: `Sources → Ingestion → Data Platform (dbt) ⇄ ML/AI Workspace → Unified Semantic & Agent Layer → App Layer → External Users / Apps`
 
@@ -37,9 +37,7 @@ Left to right: `Sources → Ingestion → Data Platform (dbt) ⇄ ML/AI Workspac
 - **Data Platform ⇄ ML/AI Workspace**: point-in-time features flow out to train/score two models (IsolationForest, RUL survival model); predictions flow back in as ordinary Consumption dynamic tables — there's no separate predictions datastore.
 - **→ Semantic & Agent Layer**: descriptive (OEE), predictive (RUL/anomaly), and prescriptive (priority score) data converge into one semantic view behind three persona-scoped Cortex Agents.
 - **→ App Layer**: a Streamlit "OEE Command Center" app — chart/table pages read Consumption directly, the chat panel is agent-mediated. Two read paths, same data.
-- **→ External Apps**: ticket creation is a tool call owned by the agent layer, landing in Jira Service Management via an External MCP Server — not something the App layer touches directly.
-
-Full writeup: [`presentation/02-architecture.md`](presentation/02-architecture.md).
+- **→ External Apps**: ticket creation is a tool call owned by the agent layer — only the Maintenance Supervisor agent has it — landing in Jira Service Management via an External MCP Server. The App layer never touches it directly.
 
 ---
 
@@ -135,10 +133,6 @@ flowchart LR
     cons__fct_forward_dollar_at_risk --> cons__fct_dollar_exposure
 ```
 
-The same chain as seen live in Snowflake (dynamic-table dependency graph):
-
-![Dollar exposure lineage, live in Snowflake](presentation/lineage-dollar-exposure.png)
-
 ---
 
 ## Repository structure
@@ -150,37 +144,57 @@ The same chain as seen live in Snowflake (dynamic-table dependency graph):
 | [`scripts/`](scripts/) | Numbered SQL lifecycle scripts, run in order by `manage.py` (see [`scripts/README.md`](scripts/README.md)) |
 | [`generator/`](generator/) | Synthetic data generator (Snowpark Python) — produces all Raw-table Parquet + live-tick demo files |
 | [`manage.py`](manage.py) | Environment orchestrator CLI (`up` / `down` / `demo` / `post-setup`) |
-| [`docs/`](docs/) | BRD → FRD → HLD → 11 LLD modules → Epics backlog → frozen per-story design docs |
+| [`docs/`](docs/) | BRD → FRD → HLD → 11 LLD modules → Epics backlog → frozen per-story design docs → reference architecture diagram |
 | [`.cortex/`](.cortex/) + [`.snowflake/cortex/`](.snowflake/cortex/) | CoCo skills, SDLC subagents, and the packaged `human-gated-sdlc-toolkit` plugin |
-| [`presentation/`](presentation/) | Architecture/lineage diagrams, slides, problem brief |
 
 ---
 
 ## Prerequisites & setup
 
-- **Python ≥ 3.11**, dependencies managed exclusively via [`uv`](https://docs.astral.sh/uv/) — run everything as `uv run <script>`, add packages via `uv add <pkg>`. Never call `pip` directly.
-- **A Snowflake account**, with **two** connection profiles in `~/.snowflake/connections.toml`:
+1. **Python ≥ 3.11.**
 
-  ```toml
-  # Bootstrap connection -- used by manage.py up/down. No role pinned, so it
-  # can always connect even before snowcomotive_role exists or right after a teardown.
-  [snow-co-cat-alyst]
-  account = "<account-identifier>"
-  user = "<your-username>"
-  authenticator = "snowflake"
-  password = "..."
+2. **Install [`uv`](https://docs.astral.sh/uv/)** — this project uses `uv` exclusively for dependency management, never `pip` directly:
 
-  # Day-to-day ad hoc connection -- role pinned, only usable once the
-  # environment has actually been set up.
-  [snow-co-cat-alyst-snowcomotive]
-  account = "<account-identifier>"
-  user = "<your-username>"
-  authenticator = "snowflake"
-  password = "..."
-  role = "snowcomotive_role"
-  ```
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
 
-  Requires the `secure-local-storage` extra on `snowflake-connector-python` (already in `pyproject.toml`) so the session token caches locally via `keyring`.
+3. **Install project dependencies with `uv sync`** (reads `pyproject.toml` / `uv.lock`, creates `.venv` automatically):
+
+   ```bash
+   uv sync
+   ```
+
+4. **Adding a new dependency later** — always `uv add <pkg>`, never `pip install`:
+
+   ```bash
+   uv add <pkg>
+   ```
+
+   Run every script as `uv run <script>` (e.g. `uv run python manage.py ...`) so it executes inside that same managed `.venv`.
+
+5. **A Snowflake account**, with **two** connection profiles in `~/.snowflake/connections.toml`:
+
+   ```toml
+   # Bootstrap connection -- used by manage.py up/down. No role pinned, so it
+   # can always connect even before snowcomotive_role exists or right after a teardown.
+   [snow-co-cat-alyst]
+   account = "<account-identifier>"
+   user = "<your-username>"
+   authenticator = "snowflake"
+   password = "..."
+
+   # Day-to-day ad hoc connection -- role pinned, only usable once the
+   # environment has actually been set up.
+   [snow-co-cat-alyst-snowcomotive]
+   account = "<account-identifier>"
+   user = "<your-username>"
+   authenticator = "snowflake"
+   password = "..."
+   role = "snowcomotive_role"
+   ```
+
+   Requires the `secure-local-storage` extra on `snowflake-connector-python` (already in `pyproject.toml`) so the session token caches locally via `keyring`.
 
 ### Spin up the environment
 
@@ -217,14 +231,14 @@ See [`AGENTS.md`](AGENTS.md) "Local dev environment" for the full rationale (why
 
 ## Development workflow — SDLC + Jira
 
-**Two separate Jira surfaces exist — don't conflate them:**
+**Two separate Jira boards exist — don't conflate them:**
 
-| Board | Type | Purpose |
-|---|---|---|
-| **`SH`** | Kanban board | This repo's own dev backlog — stories/tasks/bugs. Source of truth is [`docs/05-Epics.md`](docs/05-Epics.md); Jira mirrors it. |
-| **`SUP`** | Jira Service Management | Real maintenance incidents, created at runtime by the deployed `maintenance_supervisor_agent` via a Jira MCP connector. Nothing to do with this repo's own development. |
+| | Board ID | Board type | Purpose |
+|---|---|---|---|
+| **Dev backlog** | `SH` | Kanban board | This repo's own dev backlog — stories/tasks/bugs. Source of truth is [`docs/05-Epics.md`](docs/05-Epics.md); this Jira board mirrors it. |
+| **Live maintenance** | `SUP` | Jira Service Management | Real maintenance incidents, created at runtime by the deployed `maintenance_supervisor_agent` — the only persona-agent with Jira access — via a Jira MCP connector. Nothing to do with this repo's own development. |
 
-Every story on the `SH` board moves through a **human-gated** loop of specialized CoCo subagents — no agent auto-chains to the next stage, every handoff below is a deliberate user action, and merges always require explicit user go-ahead:
+Every story on the `SH` dev-backlog board moves through a **human-gated** loop of specialized CoCo subagents — no agent auto-chains to the next stage, every handoff below is a deliberate user action, and merges always require explicit user go-ahead:
 
 ```mermaid
 flowchart LR
@@ -248,4 +262,3 @@ Packaged as a reusable, project-agnostic plugin — see [`.cortex/plugins/human-
 
 - [`docs/01-BRD.md`](docs/01-BRD.md) → [`docs/02-FRD.md`](docs/02-FRD.md) → [`docs/03-HLD.md`](docs/03-HLD.md) → [`docs/04-*-LLD.md`](docs/) — full requirements and design
 - [`docs/05-Epics.md`](docs/05-Epics.md) — backlog (mirrors the `SH` Jira board)
-- [`presentation/`](presentation/) — slide-form architecture, problem brief, and impact statement
