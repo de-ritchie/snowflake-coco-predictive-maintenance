@@ -6,13 +6,10 @@ A predictive-maintenance and OEE command center for a discrete-manufacturing pla
 
 ## What business problem does it solve?
 
-Maintenance priority today is driven by failure risk or asset value alone — and that risk is usually spotted reactively, after symptoms appear, not predicted ahead of time.
-
-This happens because failure signals (sensor data) and business context (demand, inventory, spare parts) live in disconnected systems owned by different teams.
-
-Result: effort and capital go to the wrong machine at the wrong time — often too late to prevent the loss.
-
-This solution predicts failures early and converges that risk with business context into one layer, so priority reflects real, forward-looking business impact — not just mechanical risk.
+- Maintenance priority today is driven by failure risk or asset value alone — and that risk is usually spotted reactively, after symptoms appear, not predicted ahead of time.
+- This happens because failure signals (sensor data) and business context (demand, inventory, spare parts) live in disconnected systems owned by different teams.
+- Result: effort and capital go to the wrong machine at the wrong time — often too late to prevent the loss.
+- This solution predicts failures early and converges that risk with business context into one layer, so priority reflects real, forward-looking business impact — not just mechanical risk.
 
 **Who it's for** — three personas share one semantic model, differentiated by tool access and framing, not three copies of the same dashboard:
 
@@ -222,8 +219,9 @@ SNOWFLAKE_CONNECTION_NAME=snow-co-cat-alyst uv run python manage.py down
 
 ```bash
 uv run python manage.py setup-jira            # Jira SM auth plumbing (if using ticketing)
-uv run python manage.py authorize-jira-mcp    # checks the Jira MCP connector; OAuth consent itself happens in Snowsight/CoWork UI
 ```
+
+**Authorizing the Jira MCP connector is not a CLI step.** `manage.py authorize-jira-mcp` only runs a read-only existence check on the connector objects — the actual OAuth consent happens interactively, once per account, via **Snowsight's Agent UI** (AI & ML → Agents → `maintenance_supervisor_agent` → MCP Connectors tab → Connect) or **Snowflake CoWork's Connectors UI**. Scripted OAuth (`SYSTEM$START_USER_OAUTH_FLOW`/`SYSTEM$FINISH_OAUTH_FLOW`) was tried and abandoned — it failed repeatedly from a CLI/script context.
 
 See [`AGENTS.md`](AGENTS.md) "Local dev environment" for the full rationale (why two connection profiles, why no `snow` CLI, why `manage.py` and not raw SQL scripts).
 
