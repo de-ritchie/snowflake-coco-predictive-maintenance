@@ -36,9 +36,8 @@ PERSONA_WELCOME = {
         "like to look into?"
     ),
     "planner": (
-        "Hi, I'm here to help with demand, inventory, and OEE risk analysis — I can "
-        "pull capacity data, and flag scheduling conflicts. "
-        "What do you need?"
+        "Hi, I'm here to help with demand, inventory, and OEE risk analysis."
+        " What would you like to look into?"
     ),
     "plant_manager": (
         "Hi, I'm here to help with a read-only view of OEE, machine health, and "

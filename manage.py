@@ -327,6 +327,23 @@ def _put_streamlit_app_files(cur) -> None:
                 cur.execute(f"REMOVE @snowcomotive.cons.streamlit_stage/assets/{staged_name}")
 
 
+def _create_or_replace_streamlit(cur) -> None:
+    # CREATE STREAMLIT itself isn't in 07_post_setup.sql -- it needs the
+    # app files PUT to the stage first, and PUT can't run from a plain .sql
+    # file. Same "inline SQL in manage.py" precedent as `demo inject-tick`'s
+    # own PUT+COPY INTO. Shared by run_post_setup() (full redeploy, SH-33)
+    # and run_deploy_streamlit() (Streamlit-only redeploy, SH-90).
+    print("--- Creating Streamlit app (SH-33) ---")
+    cur.execute(
+        "CREATE OR REPLACE STREAMLIT snowcomotive.cons.oee_command_center "
+        "ROOT_LOCATION = '@snowcomotive.cons.streamlit_stage' "
+        "MAIN_FILE = 'Home.py' "
+        "QUERY_WAREHOUSE = snowcomotive_wh"
+    )
+    for row in cur.fetchall():
+        print(f"  {row}")
+
+
 def run_post_setup() -> None:
     # SH-30/27/28/31/33: semantic view + agent + Streamlit deploy. Own
     # connector session, snowcomotive_role (owns every object this creates,
@@ -336,19 +353,22 @@ def run_post_setup() -> None:
         cur = conn.cursor()
         run_sql_file(cur, SCRIPTS_DIR / "07_post_setup.sql")
         _put_streamlit_app_files(cur)
-        # CREATE STREAMLIT itself isn't in 07_post_setup.sql -- it needs the
-        # app files PUT to the stage first (created by that script), and PUT
-        # can't run from a plain .sql file. Same "inline SQL in manage.py"
-        # precedent as `demo inject-tick`'s own PUT+COPY INTO.
-        print("--- Creating Streamlit app (SH-33) ---")
-        cur.execute(
-            "CREATE OR REPLACE STREAMLIT snowcomotive.cons.oee_command_center "
-            "ROOT_LOCATION = '@snowcomotive.cons.streamlit_stage' "
-            "MAIN_FILE = 'Home.py' "
-            "QUERY_WAREHOUSE = snowcomotive_wh"
-        )
-        for row in cur.fetchall():
-            print(f"  {row}")
+        _create_or_replace_streamlit(cur)
+    finally:
+        conn.close()
+
+
+def run_deploy_streamlit() -> None:
+    # SH-90: lightweight redeploy for Streamlit-code-only changes -- PUT app
+    # files + CREATE OR REPLACE STREAMLIT, skipping 07_post_setup.sql's
+    # semantic view/Cortex Agent DDL entirely. Use `post-setup` instead when
+    # agent/semantic-view DDL also changed. Same role/connection pattern as
+    # run_post_setup() (snowcomotive_role owns the Streamlit object/stage).
+    conn = snowflake.connector.connect(connection_name=CONNECTION_NAME, role="snowcomotive_role")
+    try:
+        cur = conn.cursor()
+        _put_streamlit_app_files(cur)
+        _create_or_replace_streamlit(cur)
     finally:
         conn.close()
 
@@ -795,6 +815,16 @@ def post_setup() -> None:
     without re-running the full data/training pipeline -- use this to redeploy
     after Streamlit app code or agent-DDL changes."""
     run_post_setup()
+
+
+@app.command("deploy-streamlit")
+def deploy_streamlit() -> None:
+    """Redeploy only the Streamlit app code (PUT app files + CREATE OR REPLACE
+    STREAMLIT) -- use this for Streamlit-only code changes (e.g. a page edit
+    or the entrypoint rename). Skips the semantic view/Cortex Agent DDL and
+    the data/training pipeline entirely; use `post-setup` instead when
+    agent/semantic-view DDL also changed (SH-90)."""
+    run_deploy_streamlit()
 
 
 @app.command("authorize-jira-mcp")
