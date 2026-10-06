@@ -263,11 +263,11 @@ def run_dbt_phase2_and_test() -> None:
 
 
 def _put_streamlit_app_files(cur) -> None:
-    # home.py goes to the stage root; every pages/*.py goes to
+    # Home.py goes to the stage root; every pages/*.py goes to
     # pages/ under the stage root, preserving the multipage subpath (SH-32).
     # AUTO_COMPRESS=FALSE OVERWRITE=TRUE -- same flags `demo inject-tick`
     # already uses for its own PUT, so re-running `up` re-syncs the app code.
-    main_file = STREAMLIT_APP_DIR / "home.py"
+    main_file = STREAMLIT_APP_DIR / "Home.py"
     cur.execute(
         f"PUT 'file://{main_file}' @snowcomotive.cons.streamlit_stage/ "
         "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
@@ -304,7 +304,7 @@ def _put_streamlit_app_files(cur) -> None:
         if staged_name not in local_page_names:
             print(f"  Removing stale stage file: pages/{staged_name}")
             cur.execute(f"REMOVE @snowcomotive.cons.streamlit_stage/pages/{staged_name}")
-    # assets/ (logo.svg, logo_icon.svg) -- home.py's st.logo() call
+    # assets/ (logo.svg, logo_icon.svg) -- Home.py's st.logo() call
     # resolves these via a local filesystem path (_ASSETS_DIR), so they must
     # be staged too or st.logo() raises StreamlitAPIException at runtime.
     # Found and fixed live, 2026-09-29, after exactly this happened.
@@ -344,7 +344,7 @@ def run_post_setup() -> None:
         cur.execute(
             "CREATE OR REPLACE STREAMLIT snowcomotive.cons.oee_command_center "
             "ROOT_LOCATION = '@snowcomotive.cons.streamlit_stage' "
-            "MAIN_FILE = 'home.py' "
+            "MAIN_FILE = 'Home.py' "
             "QUERY_WAREHOUSE = snowcomotive_wh"
         )
         for row in cur.fetchall():

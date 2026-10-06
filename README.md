@@ -137,7 +137,7 @@ flowchart LR
 | Path | What it is |
 |---|---|
 | [`predictive_maintenance_dbt/`](predictive_maintenance_dbt/) | dbt project — Raw → Standardized → Consumption → FEAST models, dynamic tables |
-| [`oee_command_center_app/`](oee_command_center_app/) | Streamlit app (`home.py` + `pages/`) — Plant Overview, Production Planning, Risk Diagnostics, Agent chat |
+| [`oee_command_center_app/`](oee_command_center_app/) | Streamlit app (`Home.py` + `pages/`) — Plant Overview, Production Planning, Risk Diagnostics, Agent chat |
 | [`scripts/`](scripts/) | Numbered SQL lifecycle scripts, run in order by `manage.py` (see [`scripts/README.md`](scripts/README.md)) |
 | [`generator/`](generator/) | Synthetic data generator (Snowpark Python) — produces all Raw-table Parquet + live-tick demo files |
 | [`manage.py`](manage.py) | Environment orchestrator CLI (`up` / `down` / `demo` / `post-setup`) |

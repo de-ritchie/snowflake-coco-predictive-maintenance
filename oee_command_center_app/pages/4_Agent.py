@@ -14,7 +14,7 @@ import time
 
 import streamlit as st
 
-from home import PERSONAS, get_connection, render_sidebar, require_persona
+from Home import PERSONAS, get_connection, render_sidebar, require_persona
 
 st.set_page_config(page_title="SnowComotive", layout="wide")
 

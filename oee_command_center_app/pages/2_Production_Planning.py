@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from home import get_connection, render_sidebar, require_persona
+from Home import get_connection, render_sidebar, require_persona
 
 st.set_page_config(page_title="Production Planning", layout="wide")
 
