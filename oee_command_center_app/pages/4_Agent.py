@@ -130,8 +130,37 @@ def render_mcp_ticket_confirmation(ticket_result: dict) -> None:
 # Page rendering
 # ---------------------------------------------------------------------------
 
+def _get_cowork_url() -> str:
+    conn = get_connection()
+    row = conn.query(
+        "SELECT CURRENT_ACCOUNT() AS account_locator, CURRENT_REGION() AS region",
+        ttl=0,
+    ).iloc[0]
+    account_locator = row["ACCOUNT_LOCATOR"].lower()
+    region_slug = "-".join(row["REGION"].split("_")[1:]).lower()
+    return f"https://ai.snowflake.com/{region_slug}/{account_locator}#/ai"
+
+
 render_sidebar()
 persona = require_persona()
+
+if persona == "supervisor":
+    st.title("SnowComotive Maintenance Agent")
+    st.warning(
+        "This agent is temporarily unavailable in Streamlit due to a known "
+        "Snowflake platform limitation: Streamlit-in-Snowflake can't "
+        "authenticate to third-party MCP connectors (e.g. Jira) required for "
+        "maintenance dispatch. See "
+        "[Snowflake's documentation](https://docs.snowflake.com/en/user-guide/"
+        "snowflake-cortex/cortex-agents-mcp-connectors) for details.\n\n"
+        "Please use Snowflake CoWork to continue this conversation."
+    )
+    try:
+        st.markdown(f"[Open Snowflake CoWork]({_get_cowork_url()})")
+    except Exception as exc:
+        st.error(f"Could not determine CoWork URL: {exc}")
+    st.stop()
+
 agent_name = PERSONAS[persona]["agent_name"]
 agent_run_path = f"/api/v2/databases/{AGENT_DATABASE}/schemas/{AGENT_SCHEMA}/agents/{agent_name}:run"
 
