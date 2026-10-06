@@ -235,7 +235,7 @@ def require_persona() -> str:
     if "persona" not in st.session_state:
         st.info("Please choose a persona to continue.")
         if st.button("Choose persona"):
-            st.switch_page("streamlit_app.py")
+            st.switch_page("Home.py")
         st.stop()
     return st.session_state["persona"]
 
