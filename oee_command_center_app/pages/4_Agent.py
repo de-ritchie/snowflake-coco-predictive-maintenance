@@ -37,8 +37,8 @@ PERSONA_WELCOME = {
     ),
     "planner": (
         "Hi, I'm here to help with demand, inventory, and OEE risk analysis — I can "
-        "pull capacity data, flag scheduling conflicts, and escalate maintenance "
-        "requests on your behalf. What do you need?"
+        "pull capacity data, and flag scheduling conflicts. "
+        "What do you need?"
     ),
     "plant_manager": (
         "Hi, I'm here to help with a read-only view of OEE, machine health, and "
@@ -130,8 +130,39 @@ def render_mcp_ticket_confirmation(ticket_result: dict) -> None:
 # Page rendering
 # ---------------------------------------------------------------------------
 
+def _get_cowork_url() -> str:
+    conn = get_connection()
+    row = conn.query(
+        "SELECT CURRENT_ACCOUNT() AS account_locator, CURRENT_REGION() AS region",
+        ttl=0,
+    ).iloc[0]
+    account_locator = row["ACCOUNT_LOCATOR"].lower()
+    region_slug = "-".join(row["REGION"].split("_")[1:]).lower()
+    return f"https://ai.snowflake.com/{region_slug}/{account_locator}#/ai"
+
+
 render_sidebar()
 persona = require_persona()
+
+st.title(f"SnowComotive {PERSONAS[persona]['label']} Agent")
+st.caption("To switch persona and use a different agent, go back to the home page.")
+
+if persona == "supervisor":
+    st.warning(
+        "This Maintenance Supervisor Agent is temporarily unavailable in Streamlit due to a known "
+        "Snowflake platform limitation: Streamlit-in-Snowflake can't "
+        "authenticate to third-party MCP connectors (e.g. Jira) required for "
+        "maintenance dispatch (the rest of the agents work). See "
+        "[Snowflake's documentation](https://docs.snowflake.com/en/user-guide/"
+        "snowflake-cortex/cortex-agents-mcp-connectors) for details.\n\n"
+        "Please use Snowflake CoWork to continue this conversation."
+    )
+    try:
+        st.markdown(f"[Open Snowflake CoWork]({_get_cowork_url()})")
+    except Exception as exc:
+        st.error(f"Could not determine CoWork URL: {exc}")
+    st.stop()
+
 agent_name = PERSONAS[persona]["agent_name"]
 agent_run_path = f"/api/v2/databases/{AGENT_DATABASE}/schemas/{AGENT_SCHEMA}/agents/{agent_name}:run"
 
@@ -197,8 +228,6 @@ with history_col:
             st.rerun()
 
 with chat_col:
-    st.title("SnowComotive Maintenance Agent")
-
     for message in chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["text"])
