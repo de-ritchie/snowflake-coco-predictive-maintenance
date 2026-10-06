@@ -37,8 +37,8 @@ PERSONA_WELCOME = {
     ),
     "planner": (
         "Hi, I'm here to help with demand, inventory, and OEE risk analysis — I can "
-        "pull capacity data, flag scheduling conflicts, and escalate maintenance "
-        "requests on your behalf. What do you need?"
+        "pull capacity data, and flag scheduling conflicts. "
+        "What do you need?"
     ),
     "plant_manager": (
         "Hi, I'm here to help with a read-only view of OEE, machine health, and "
@@ -144,13 +144,15 @@ def _get_cowork_url() -> str:
 render_sidebar()
 persona = require_persona()
 
+st.title(f"SnowComotive {PERSONAS[persona]['label']} Agent")
+st.caption("To switch persona and use a different agent, go back to the home page.")
+
 if persona == "supervisor":
-    st.title("SnowComotive Maintenance Agent")
     st.warning(
-        "This agent is temporarily unavailable in Streamlit due to a known "
+        "This Maintenance Supervisor Agent is temporarily unavailable in Streamlit due to a known "
         "Snowflake platform limitation: Streamlit-in-Snowflake can't "
         "authenticate to third-party MCP connectors (e.g. Jira) required for "
-        "maintenance dispatch. See "
+        "maintenance dispatch (the rest of the agents work). See "
         "[Snowflake's documentation](https://docs.snowflake.com/en/user-guide/"
         "snowflake-cortex/cortex-agents-mcp-connectors) for details.\n\n"
         "Please use Snowflake CoWork to continue this conversation."
@@ -226,8 +228,6 @@ with history_col:
             st.rerun()
 
 with chat_col:
-    st.title("SnowComotive Maintenance Agent")
-
     for message in chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["text"])
